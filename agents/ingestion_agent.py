@@ -59,7 +59,22 @@ def _ocr_extract(file_path: str) -> str:
 
 
 def _ocr_pdf(path: Path) -> str:
-    """Extract text from PDF using pdf2image + pytesseract."""
+    """Extract text from PDF, trying PyMuPDF first, then Tesseract OCR."""
+    # 1. Try PyMuPDF first (fast, native text extraction, no system binaries needed)
+    try:
+        import fitz  # PyMuPDF
+        doc = fitz.open(str(path))
+        texts = [page.get_text() for page in doc]
+        full_text = "\n\n".join(texts).strip()
+        
+        # If the PDF contains a reasonable amount of text, return it directly.
+        # This prevents breaking on text-based PDFs when Poppler/Tesseract are missing.
+        if len(full_text) > 50:
+            return full_text
+    except Exception as e:
+        logger.warning(f"PyMuPDF fallback failed: {e}")
+
+    # 2. If PDF was an image or PyMuPDF failed, fall back to OCR
     try:
         from pdf2image import convert_from_path
         import pytesseract
@@ -70,27 +85,30 @@ def _ocr_pdf(path: Path) -> str:
             text = pytesseract.image_to_string(img, lang="fra+eng")
             texts.append(text)
         return "\n\n".join(texts)
-    except ImportError:
-        # Fallback: try PyMuPDF for text-based PDFs
-        try:
-            import fitz  # PyMuPDF
-            doc = fitz.open(str(path))
-            texts = [page.get_text() for page in doc]
-            return "\n\n".join(texts)
-        except ImportError:
-            raise RuntimeError(
-                "Neither pytesseract+pdf2image nor PyMuPDF is available. "
-                "Install one of them for PDF processing."
-            )
+    except Exception as e:
+        raise RuntimeError(
+            "OCR extraction failed for image-based PDF. This often happens natively on Windows "
+            "because Poppler (for pdf2image) or Tesseract are not installed or not in PATH.\n"
+            "To fix, either run the project via Docker (where it is pre-installed) or install "
+            f"Poppler and Tesseract on your host system. Error details: {e}"
+        )
 
 
 def _ocr_image(path: Path) -> str:
     """Extract text from an image using pytesseract."""
-    import pytesseract
-    from PIL import Image
+    try:
+        import pytesseract
+        from PIL import Image
 
-    img = Image.open(str(path))
-    return pytesseract.image_to_string(img, lang="fra+eng")
+        img = Image.open(str(path))
+        return pytesseract.image_to_string(img, lang="fra+eng")
+    except Exception as e:
+        raise RuntimeError(
+            "OCR extraction failed for Image. This often happens natively on Windows "
+            "because Tesseract executable is not installed or not in PATH.\n"
+            "To fix, either run the project via Docker or install Tesseract. "
+            f"Error details: {e}"
+        )
 
 
 # ---------------------------------------------------------------------------

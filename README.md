@@ -4,8 +4,41 @@ Agentic AI system for **Accounts Payable invoice processing** using the **Model 
 
 ## Architecture
 
-```
-Invoice Upload → Ingestion Agent (OCR+LLM) → Validation Agent (MCP→ERP) → Process/Reject
+```mermaid
+flowchart TD
+    %% Define styles
+    classDef user fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
+    classDef agent fill:#f3e5f5,stroke:#4a148c,stroke-width:2px;
+    classDef mcp fill:#fff3e0,stroke:#e65100,stroke-width:2px;
+    classDef db fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px;
+
+    User([User]) ::: user
+    API[FastAPI Gateway] ::: user
+    
+    subgraph LangGraph Pipeline
+        Ingestion[Ingestion Agent\nOCR + LLM Extraction] ::: agent
+        Validation[Validation Agent\nMCP API Checks] ::: agent
+        Processing[Processing Agent\nERP Invoice Creation] ::: agent
+    end
+    
+    MCS[MCP ERP Server\nFastMCP] ::: mcp
+    ERP[(ERP Database\nSQLite)] ::: db
+    
+    User -- "Upload Invoice" --> API
+    API -- "Start Workflow" --> Ingestion
+    
+    Ingestion -- "Structured Data" --> Validation
+    Validation -- "validate_vat()\nvalidate_siret()\nvalidate_po()" --> MCS
+    MCS -- "Query" --> ERP
+    ERP -. "Results" .-> MCS
+    MCS -. "Validation Response" .-> Validation
+    
+    Validation -- "Verified Data" --> Processing
+    Processing -- "create_erp_invoice()" --> MCS
+    MCS -- "Write" --> ERP
+    
+    Processing -- "Workflow Result\n(Process/Reject)" --> API
+    API -- "Status Response" --> User
 ```
 
 ### Services
