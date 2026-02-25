@@ -1,0 +1,38 @@
+FACTURE N° FAC-2025-0042
+
+TechnoVision SAS
+15 Rue de la Paix
+75002 Paris, France
+
+N° TVA: FR82123456789
+SIRET: 12345678900014
+
+Coordonnées bancaires:
+IBAN: FR7630006000011234567890189
+BIC: BNPAFRPP
+
+Date: 2025-02-15
+Référence commande: PO-2025-001
+
+Destinataire:
+Acme Corporation
+100 Boulevard Saint-Germain
+75006 Paris
+
+----------------------------------------------------------
+Description              | Qté | Prix Unit. | Total HT
+----------------------------------------------------------
+Serveur Dell PowerEdge   |  2  | 3 500,00 € | 7 000,00 €
+Licence Windows Server   |  2  |   800,00 € | 1 600,00 €
+Installation & Config    |  1  | 2 000,00 € | 2 000,00 €
+Support annuel Premium   |  1  | 1 500,00 € | 1 500,00 €
+----------------------------------------------------------
+
+Total HT:    12 100,00 €
+TVA (20%):    2 420,00 €
+Total TTC:   14 520,00 €
+
+Conditions de paiement: 30 jours nets
+Mode de paiement: Virement bancaire
+
+Merci pour votre confiance.

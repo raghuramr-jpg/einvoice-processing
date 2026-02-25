@@ -1,0 +1,28 @@
+FACTURE N° FAC-2025-0099
+
+Unknown Corp SAS
+999 Rue Imaginaire
+00000 Nowhere, France
+
+N° TVA: FR00000000000
+SIRET: 99999999999999
+
+Coordonnées bancaires:
+IBAN: FR7600000000009999999999999
+BIC: XXXXXFRPP
+
+Date: 2025-02-20
+Référence commande: PO-FAKE-999
+
+Destinataire:
+Acme Corporation
+
+----------------------------------------------------------
+Description              | Qté | Prix Unit. | Total HT
+----------------------------------------------------------
+Widget mystérieux        |  10 |   100,00 € | 1 000,00 €
+----------------------------------------------------------
+
+Total HT:     1 000,00 €
+TVA (20%):      200,00 €
+Total TTC:    1 200,00 €

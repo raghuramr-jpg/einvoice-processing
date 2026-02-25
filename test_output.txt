@@ -1,0 +1,991 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.0.2, pluggy-1.6.0 -- C:\installations\aiprojects\ap-invoice-agent\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\installations\aiprojects\ap-invoice-agent
+configfile: pyproject.toml
+plugins: anyio-4.12.1, langsmith-0.7.6, asyncio-1.3.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 22 items
+
+tests/test_graph.py::TestProcessingNode::test_successful_invoice_creation FAILED [  4%]
+tests/test_graph.py::TestProcessingNode::test_invalid_supplier_rejects PASSED [  9%]
+tests/test_graph.py::TestRejectNode::test_rejection_report PASSED        [ 13%]
+tests/test_mcp_erp_server.py::TestValidateVat::test_valid_vat FAILED     [ 18%]
+tests/test_mcp_erp_server.py::TestValidateVat::test_invalid_vat FAILED   [ 22%]
+tests/test_mcp_erp_server.py::TestValidateVat::test_vat_case_insensitive FAILED [ 27%]
+tests/test_mcp_erp_server.py::TestValidateSiret::test_valid_siret FAILED [ 31%]
+tests/test_mcp_erp_server.py::TestValidateSiret::test_invalid_siret FAILED [ 36%]
+tests/test_mcp_erp_server.py::TestValidateSupplierBank::test_valid_bank FAILED [ 40%]
+tests/test_mcp_erp_server.py::TestValidateSupplierBank::test_invalid_bank FAILED [ 45%]
+tests/test_mcp_erp_server.py::TestValidatePurchaseOrder::test_open_po FAILED [ 50%]
+tests/test_mcp_erp_server.py::TestValidatePurchaseOrder::test_closed_po FAILED [ 54%]
+tests/test_mcp_erp_server.py::TestValidatePurchaseOrder::test_missing_po FAILED [ 59%]
+tests/test_mcp_erp_server.py::TestGetSupplierDetails::test_found FAILED  [ 63%]
+tests/test_mcp_erp_server.py::TestGetSupplierDetails::test_partial_match FAILED [ 68%]
+tests/test_mcp_erp_server.py::TestGetSupplierDetails::test_not_found FAILED [ 72%]
+tests/test_mcp_erp_server.py::TestCreateErpInvoice::test_successful_creation FAILED [ 77%]
+tests/test_mcp_erp_server.py::TestCreateErpInvoice::test_invalid_vat_rejected FAILED [ 81%]
+tests/test_validation_agent.py::TestValidationAgent::test_all_valid FAILED [ 86%]
+tests/test_validation_agent.py::TestValidationAgent::test_invalid_vat FAILED [ 90%]
+tests/test_validation_agent.py::TestValidationAgent::test_missing_fields FAILED [ 95%]
+tests/test_validation_agent.py::TestValidationAgent::test_no_extracted_data PASSED [100%]
+
+================================== FAILURES ===================================
+_____________ TestProcessingNode.test_successful_invoice_creation _____________
+
+self = <tests.test_graph.TestProcessingNode object at 0x000001C570AF8AD0>
+
+    def test_successful_invoice_creation(self):
+        """Invoice should be created in ERP when all data is valid."""
+        from agents.processing_agent import process_node
+    
+        state = {
+            "extracted_data": {
+                "supplier_name": "TechnoVision SAS",
+                "vat_number": "FR82123456789",
+                "siret": "12345678900014",
+                "iban": "FR7630006000011234567890189",
+                "bic": "BNPAFRPP",
+                "po_number": "PO-2025-001",
+                "invoice_number": "FAC-2025-0042",
+                "invoice_date": "2025-02-15",
+                "line_items": [
+                    {"description": "Server", "quantity": 2, "unit_price": 3500, "total": 7000},
+                ],
+                "total_ht": 12100.00,
+                "tva_rate": 20.0,
+                "tva_amount": 2420.00,
+                "total_ttc": 14520.00,
+                "currency": "EUR",
+            },
+            "errors": [],
+        }
+    
+        result = process_node(state)
+>       assert result["status"] == "processed"
+E       AssertionError: assert 'error' == 'processed'
+E         
+E         - processed
+E         + error
+
+tests\test_graph.py:54: AssertionError
+_______________________ TestValidateVat.test_valid_vat ________________________
+
+self = <tests.test_mcp_erp_server.TestValidateVat object at 0x000001C5713A1D50>
+
+    def test_valid_vat(self):
+>       from mcp_erp_server.server import validate_vat
+
+tests\test_mcp_erp_server.py:29: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """FastMCP server exposing ERP validation and invoice creation tools.
+    
+    Run standalone:
+        python -m mcp_erp_server.server          # stdio transport
+        python -m mcp_erp_server.server --sse     # SSE transport on port 8001
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import sys
+    from datetime import date
+    
+    from mcp.server.fastmcp import FastMCP
+    
+    from .erp_database import (
+        create_invoice,
+        find_purchase_order,
+        find_supplier_bank,
+        find_supplier_by_name,
+        find_supplier_by_siret,
+        find_supplier_by_vat,
+        init_database,
+    )
+    
+    # Initialize the database on import
+    init_database()
+    
+    # Create the FastMCP server
+>   mcp = FastMCP(
+        "erp-server",
+        description="MCP server for ERP operations ù validates supplier data and creates invoices",
+    )
+E   TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'
+
+mcp_erp_server\server.py:30: TypeError
+______________________ TestValidateVat.test_invalid_vat _______________________
+
+self = <tests.test_mcp_erp_server.TestValidateVat object at 0x000001C5713A2650>
+
+    def test_invalid_vat(self):
+>       from mcp_erp_server.server import validate_vat
+
+tests\test_mcp_erp_server.py:35: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """FastMCP server exposing ERP validation and invoice creation tools.
+    
+    Run standalone:
+        python -m mcp_erp_server.server          # stdio transport
+        python -m mcp_erp_server.server --sse     # SSE transport on port 8001
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import sys
+    from datetime import date
+    
+    from mcp.server.fastmcp import FastMCP
+    
+    from .erp_database import (
+        create_invoice,
+        find_purchase_order,
+        find_supplier_bank,
+        find_supplier_by_name,
+        find_supplier_by_siret,
+        find_supplier_by_vat,
+        init_database,
+    )
+    
+    # Initialize the database on import
+    init_database()
+    
+    # Create the FastMCP server
+>   mcp = FastMCP(
+        "erp-server",
+        description="MCP server for ERP operations ù validates supplier data and creates invoices",
+    )
+E   TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'
+
+mcp_erp_server\server.py:30: TypeError
+__________________ TestValidateVat.test_vat_case_insensitive __________________
+
+self = <tests.test_mcp_erp_server.TestValidateVat object at 0x000001C5713A2950>
+
+    def test_vat_case_insensitive(self):
+>       from mcp_erp_server.server import validate_vat
+
+tests\test_mcp_erp_server.py:40: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """FastMCP server exposing ERP validation and invoice creation tools.
+    
+    Run standalone:
+        python -m mcp_erp_server.server          # stdio transport
+        python -m mcp_erp_server.server --sse     # SSE transport on port 8001
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import sys
+    from datetime import date
+    
+    from mcp.server.fastmcp import FastMCP
+    
+    from .erp_database import (
+        create_invoice,
+        find_purchase_order,
+        find_supplier_bank,
+        find_supplier_by_name,
+        find_supplier_by_siret,
+        find_supplier_by_vat,
+        init_database,
+    )
+    
+    # Initialize the database on import
+    init_database()
+    
+    # Create the FastMCP server
+>   mcp = FastMCP(
+        "erp-server",
+        description="MCP server for ERP operations ù validates supplier data and creates invoices",
+    )
+E   TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'
+
+mcp_erp_server\server.py:30: TypeError
+_____________________ TestValidateSiret.test_valid_siret ______________________
+
+self = <tests.test_mcp_erp_server.TestValidateSiret object at 0x000001C5713A3050>
+
+    def test_valid_siret(self):
+>       from mcp_erp_server.server import validate_siret
+
+tests\test_mcp_erp_server.py:47: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """FastMCP server exposing ERP validation and invoice creation tools.
+    
+    Run standalone:
+        python -m mcp_erp_server.server          # stdio transport
+        python -m mcp_erp_server.server --sse     # SSE transport on port 8001
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import sys
+    from datetime import date
+    
+    from mcp.server.fastmcp import FastMCP
+    
+    from .erp_database import (
+        create_invoice,
+        find_purchase_order,
+        find_supplier_bank,
+        find_supplier_by_name,
+        find_supplier_by_siret,
+        find_supplier_by_vat,
+        init_database,
+    )
+    
+    # Initialize the database on import
+    init_database()
+    
+    # Create the FastMCP server
+>   mcp = FastMCP(
+        "erp-server",
+        description="MCP server for ERP operations ù validates supplier data and creates invoices",
+    )
+E   TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'
+
+mcp_erp_server\server.py:30: TypeError
+____________________ TestValidateSiret.test_invalid_siret _____________________
+
+self = <tests.test_mcp_erp_server.TestValidateSiret object at 0x000001C5713A3850>
+
+    def test_invalid_siret(self):
+>       from mcp_erp_server.server import validate_siret
+
+tests\test_mcp_erp_server.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """FastMCP server exposing ERP validation and invoice creation tools.
+    
+    Run standalone:
+        python -m mcp_erp_server.server          # stdio transport
+        python -m mcp_erp_server.server --sse     # SSE transport on port 8001
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import sys
+    from datetime import date
+    
+    from mcp.server.fastmcp import FastMCP
+    
+    from .erp_database import (
+        create_invoice,
+        find_purchase_order,
+        find_supplier_bank,
+        find_supplier_by_name,
+        find_supplier_by_siret,
+        find_supplier_by_vat,
+        init_database,
+    )
+    
+    # Initialize the database on import
+    init_database()
+    
+    # Create the FastMCP server
+>   mcp = FastMCP(
+        "erp-server",
+        description="MCP server for ERP operations ù validates supplier data and creates invoices",
+    )
+E   TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'
+
+mcp_erp_server\server.py:30: TypeError
+__________________ TestValidateSupplierBank.test_valid_bank ___________________
+
+self = <tests.test_mcp_erp_server.TestValidateSupplierBank object at 0x000001C5713A3910>
+
+    def test_valid_bank(self):
+>       from mcp_erp_server.server import validate_supplier_bank
+
+tests\test_mcp_erp_server.py:60: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """FastMCP server exposing ERP validation and invoice creation tools.
+    
+    Run standalone:
+        python -m mcp_erp_server.server          # stdio transport
+        python -m mcp_erp_server.server --sse     # SSE transport on port 8001
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import sys
+    from datetime import date
+    
+    from mcp.server.fastmcp import FastMCP
+    
+    from .erp_database import (
+        create_invoice,
+        find_purchase_order,
+        find_supplier_bank,
+        find_supplier_by_name,
+        find_supplier_by_siret,
+        find_supplier_by_vat,
+        init_database,
+    )
+    
+    # Initialize the database on import
+    init_database()
+    
+    # Create the FastMCP server
+>   mcp = FastMCP(
+        "erp-server",
+        description="MCP server for ERP operations ù validates supplier data and creates invoices",
+    )
+E   TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'
+
+mcp_erp_server\server.py:30: TypeError
+_________________ TestValidateSupplierBank.test_invalid_bank __________________
+
+self = <tests.test_mcp_erp_server.TestValidateSupplierBank object at 0x000001C5713A0310>
+
+    def test_invalid_bank(self):
+>       from mcp_erp_server.server import validate_supplier_bank
+
+tests\test_mcp_erp_server.py:69: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """FastMCP server exposing ERP validation and invoice creation tools.
+    
+    Run standalone:
+        python -m mcp_erp_server.server          # stdio transport
+        python -m mcp_erp_server.server --sse     # SSE transport on port 8001
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import sys
+    from datetime import date
+    
+    from mcp.server.fastmcp import FastMCP
+    
+    from .erp_database import (
+        create_invoice,
+        find_purchase_order,
+        find_supplier_bank,
+        find_supplier_by_name,
+        find_supplier_by_siret,
+        find_supplier_by_vat,
+        init_database,
+    )
+    
+    # Initialize the database on import
+    init_database()
+    
+    # Create the FastMCP server
+>   mcp = FastMCP(
+        "erp-server",
+        description="MCP server for ERP operations ù validates supplier data and creates invoices",
+    )
+E   TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'
+
+mcp_erp_server\server.py:30: TypeError
+___________________ TestValidatePurchaseOrder.test_open_po ____________________
+
+self = <tests.test_mcp_erp_server.TestValidatePurchaseOrder object at 0x000001C5713A1190>
+
+    def test_open_po(self):
+>       from mcp_erp_server.server import validate_purchase_order
+
+tests\test_mcp_erp_server.py:79: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """FastMCP server exposing ERP validation and invoice creation tools.
+    
+    Run standalone:
+        python -m mcp_erp_server.server          # stdio transport
+        python -m mcp_erp_server.server --sse     # SSE transport on port 8001
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import sys
+    from datetime import date
+    
+    from mcp.server.fastmcp import FastMCP
+    
+    from .erp_database import (
+        create_invoice,
+        find_purchase_order,
+        find_supplier_bank,
+        find_supplier_by_name,
+        find_supplier_by_siret,
+        find_supplier_by_vat,
+        init_database,
+    )
+    
+    # Initialize the database on import
+    init_database()
+    
+    # Create the FastMCP server
+>   mcp = FastMCP(
+        "erp-server",
+        description="MCP server for ERP operations ù validates supplier data and creates invoices",
+    )
+E   TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'
+
+mcp_erp_server\server.py:30: TypeError
+__________________ TestValidatePurchaseOrder.test_closed_po ___________________
+
+self = <tests.test_mcp_erp_server.TestValidatePurchaseOrder object at 0x000001C5713A0110>
+
+    def test_closed_po(self):
+>       from mcp_erp_server.server import validate_purchase_order
+
+tests\test_mcp_erp_server.py:86: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """FastMCP server exposing ERP validation and invoice creation tools.
+    
+    Run standalone:
+        python -m mcp_erp_server.server          # stdio transport
+        python -m mcp_erp_server.server --sse     # SSE transport on port 8001
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import sys
+    from datetime import date
+    
+    from mcp.server.fastmcp import FastMCP
+    
+    from .erp_database import (
+        create_invoice,
+        find_purchase_order,
+        find_supplier_bank,
+        find_supplier_by_name,
+        find_supplier_by_siret,
+        find_supplier_by_vat,
+        init_database,
+    )
+    
+    # Initialize the database on import
+    init_database()
+    
+    # Create the FastMCP server
+>   mcp = FastMCP(
+        "erp-server",
+        description="MCP server for ERP operations ù validates supplier data and creates invoices",
+    )
+E   TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'
+
+mcp_erp_server\server.py:30: TypeError
+__________________ TestValidatePurchaseOrder.test_missing_po __________________
+
+self = <tests.test_mcp_erp_server.TestValidatePurchaseOrder object at 0x000001C571377450>
+
+    def test_missing_po(self):
+>       from mcp_erp_server.server import validate_purchase_order
+
+tests\test_mcp_erp_server.py:92: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """FastMCP server exposing ERP validation and invoice creation tools.
+    
+    Run standalone:
+        python -m mcp_erp_server.server          # stdio transport
+        python -m mcp_erp_server.server --sse     # SSE transport on port 8001
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import sys
+    from datetime import date
+    
+    from mcp.server.fastmcp import FastMCP
+    
+    from .erp_database import (
+        create_invoice,
+        find_purchase_order,
+        find_supplier_bank,
+        find_supplier_by_name,
+        find_supplier_by_siret,
+        find_supplier_by_vat,
+        init_database,
+    )
+    
+    # Initialize the database on import
+    init_database()
+    
+    # Create the FastMCP server
+>   mcp = FastMCP(
+        "erp-server",
+        description="MCP server for ERP operations ù validates supplier data and creates invoices",
+    )
+E   TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'
+
+mcp_erp_server\server.py:30: TypeError
+______________________ TestGetSupplierDetails.test_found ______________________
+
+self = <tests.test_mcp_erp_server.TestGetSupplierDetails object at 0x000001C571376FD0>
+
+    def test_found(self):
+>       from mcp_erp_server.server import get_supplier_details
+
+tests\test_mcp_erp_server.py:99: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """FastMCP server exposing ERP validation and invoice creation tools.
+    
+    Run standalone:
+        python -m mcp_erp_server.server          # stdio transport
+        python -m mcp_erp_server.server --sse     # SSE transport on port 8001
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import sys
+    from datetime import date
+    
+    from mcp.server.fastmcp import FastMCP
+    
+    from .erp_database import (
+        create_invoice,
+        find_purchase_order,
+        find_supplier_bank,
+        find_supplier_by_name,
+        find_supplier_by_siret,
+        find_supplier_by_vat,
+        init_database,
+    )
+    
+    # Initialize the database on import
+    init_database()
+    
+    # Create the FastMCP server
+>   mcp = FastMCP(
+        "erp-server",
+        description="MCP server for ERP operations ù validates supplier data and creates invoices",
+    )
+E   TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'
+
+mcp_erp_server\server.py:30: TypeError
+__________________ TestGetSupplierDetails.test_partial_match __________________
+
+self = <tests.test_mcp_erp_server.TestGetSupplierDetails object at 0x000001C571377ED0>
+
+    def test_partial_match(self):
+>       from mcp_erp_server.server import get_supplier_details
+
+tests\test_mcp_erp_server.py:105: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """FastMCP server exposing ERP validation and invoice creation tools.
+    
+    Run standalone:
+        python -m mcp_erp_server.server          # stdio transport
+        python -m mcp_erp_server.server --sse     # SSE transport on port 8001
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import sys
+    from datetime import date
+    
+    from mcp.server.fastmcp import FastMCP
+    
+    from .erp_database import (
+        create_invoice,
+        find_purchase_order,
+        find_supplier_bank,
+        find_supplier_by_name,
+        find_supplier_by_siret,
+        find_supplier_by_vat,
+        init_database,
+    )
+    
+    # Initialize the database on import
+    init_database()
+    
+    # Create the FastMCP server
+>   mcp = FastMCP(
+        "erp-server",
+        description="MCP server for ERP operations ù validates supplier data and creates invoices",
+    )
+E   TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'
+
+mcp_erp_server\server.py:30: TypeError
+____________________ TestGetSupplierDetails.test_not_found ____________________
+
+self = <tests.test_mcp_erp_server.TestGetSupplierDetails object at 0x000001C571374B50>
+
+    def test_not_found(self):
+>       from mcp_erp_server.server import get_supplier_details
+
+tests\test_mcp_erp_server.py:111: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """FastMCP server exposing ERP validation and invoice creation tools.
+    
+    Run standalone:
+        python -m mcp_erp_server.server          # stdio transport
+        python -m mcp_erp_server.server --sse     # SSE transport on port 8001
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import sys
+    from datetime import date
+    
+    from mcp.server.fastmcp import FastMCP
+    
+    from .erp_database import (
+        create_invoice,
+        find_purchase_order,
+        find_supplier_bank,
+        find_supplier_by_name,
+        find_supplier_by_siret,
+        find_supplier_by_vat,
+        init_database,
+    )
+    
+    # Initialize the database on import
+    init_database()
+    
+    # Create the FastMCP server
+>   mcp = FastMCP(
+        "erp-server",
+        description="MCP server for ERP operations ù validates supplier data and creates invoices",
+    )
+E   TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'
+
+mcp_erp_server\server.py:30: TypeError
+________________ TestCreateErpInvoice.test_successful_creation ________________
+
+self = <tests.test_mcp_erp_server.TestCreateErpInvoice object at 0x000001C5713A3890>
+
+    def test_successful_creation(self):
+>       from mcp_erp_server.server import create_erp_invoice
+
+tests\test_mcp_erp_server.py:118: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """FastMCP server exposing ERP validation and invoice creation tools.
+    
+    Run standalone:
+        python -m mcp_erp_server.server          # stdio transport
+        python -m mcp_erp_server.server --sse     # SSE transport on port 8001
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import sys
+    from datetime import date
+    
+    from mcp.server.fastmcp import FastMCP
+    
+    from .erp_database import (
+        create_invoice,
+        find_purchase_order,
+        find_supplier_bank,
+        find_supplier_by_name,
+        find_supplier_by_siret,
+        find_supplier_by_vat,
+        init_database,
+    )
+    
+    # Initialize the database on import
+    init_database()
+    
+    # Create the FastMCP server
+>   mcp = FastMCP(
+        "erp-server",
+        description="MCP server for ERP operations ù validates supplier data and creates invoices",
+    )
+E   TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'
+
+mcp_erp_server\server.py:30: TypeError
+_______________ TestCreateErpInvoice.test_invalid_vat_rejected ________________
+
+self = <tests.test_mcp_erp_server.TestCreateErpInvoice object at 0x000001C571377390>
+
+    def test_invalid_vat_rejected(self):
+>       from mcp_erp_server.server import create_erp_invoice
+
+tests\test_mcp_erp_server.py:134: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """FastMCP server exposing ERP validation and invoice creation tools.
+    
+    Run standalone:
+        python -m mcp_erp_server.server          # stdio transport
+        python -m mcp_erp_server.server --sse     # SSE transport on port 8001
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import sys
+    from datetime import date
+    
+    from mcp.server.fastmcp import FastMCP
+    
+    from .erp_database import (
+        create_invoice,
+        find_purchase_order,
+        find_supplier_bank,
+        find_supplier_by_name,
+        find_supplier_by_siret,
+        find_supplier_by_vat,
+        init_database,
+    )
+    
+    # Initialize the database on import
+    init_database()
+    
+    # Create the FastMCP server
+>   mcp = FastMCP(
+        "erp-server",
+        description="MCP server for ERP operations ù validates supplier data and creates invoices",
+    )
+E   TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'
+
+mcp_erp_server\server.py:30: TypeError
+_____________________ TestValidationAgent.test_all_valid ______________________
+
+self = <tests.test_validation_agent.TestValidationAgent object at 0x000001C570B47750>
+
+    def test_all_valid(self):
+        """All validations should pass for a known supplier with correct data."""
+        from agents.validation_agent import validation_node
+    
+        state = {
+            "extracted_data": {
+                "supplier_name": "TechnoVision",
+                "vat_number": "FR82123456789",
+                "siret": "12345678900014",
+                "iban": "FR7630006000011234567890189",
+                "bic": "BNPAFRPP",
+                "po_number": "PO-2025-001",
+            },
+            "errors": [],
+        }
+    
+>       result = validation_node(state)
+                 ^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_validation_agent.py:39: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+agents\validation_agent.py:128: in validation_node
+    validations.append(_validate_supplier(client, supplier_name))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+agents\validation_agent.py:96: in _validate_supplier
+    result = client.call_tool("get_supplier_details", {"supplier_name": supplier_name})
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+agents\validation_agent.py:37: in call_tool
+    from mcp_erp_server import server as erp_server
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """FastMCP server exposing ERP validation and invoice creation tools.
+    
+    Run standalone:
+        python -m mcp_erp_server.server          # stdio transport
+        python -m mcp_erp_server.server --sse     # SSE transport on port 8001
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import sys
+    from datetime import date
+    
+    from mcp.server.fastmcp import FastMCP
+    
+    from .erp_database import (
+        create_invoice,
+        find_purchase_order,
+        find_supplier_bank,
+        find_supplier_by_name,
+        find_supplier_by_siret,
+        find_supplier_by_vat,
+        init_database,
+    )
+    
+    # Initialize the database on import
+    init_database()
+    
+    # Create the FastMCP server
+>   mcp = FastMCP(
+        "erp-server",
+        description="MCP server for ERP operations ù validates supplier data and creates invoices",
+    )
+E   TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'
+
+mcp_erp_server\server.py:30: TypeError
+____________________ TestValidationAgent.test_invalid_vat _____________________
+
+self = <tests.test_validation_agent.TestValidationAgent object at 0x000001C570B44F50>
+
+    def test_invalid_vat(self):
+        """VAT validation should fail for unknown VAT number."""
+        from agents.validation_agent import validation_node
+    
+        state = {
+            "extracted_data": {
+                "supplier_name": "TechnoVision",
+                "vat_number": "FR00000000000",
+                "siret": "12345678900014",
+                "iban": "FR7630006000011234567890189",
+                "bic": "BNPAFRPP",
+                "po_number": "PO-2025-001",
+            },
+            "errors": [],
+        }
+    
+>       result = validation_node(state)
+                 ^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_validation_agent.py:62: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+agents\validation_agent.py:128: in validation_node
+    validations.append(_validate_supplier(client, supplier_name))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+agents\validation_agent.py:96: in _validate_supplier
+    result = client.call_tool("get_supplier_details", {"supplier_name": supplier_name})
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+agents\validation_agent.py:37: in call_tool
+    from mcp_erp_server import server as erp_server
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """FastMCP server exposing ERP validation and invoice creation tools.
+    
+    Run standalone:
+        python -m mcp_erp_server.server          # stdio transport
+        python -m mcp_erp_server.server --sse     # SSE transport on port 8001
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import sys
+    from datetime import date
+    
+    from mcp.server.fastmcp import FastMCP
+    
+    from .erp_database import (
+        create_invoice,
+        find_purchase_order,
+        find_supplier_bank,
+        find_supplier_by_name,
+        find_supplier_by_siret,
+        find_supplier_by_vat,
+        init_database,
+    )
+    
+    # Initialize the database on import
+    init_database()
+    
+    # Create the FastMCP server
+>   mcp = FastMCP(
+        "erp-server",
+        description="MCP server for ERP operations ù validates supplier data and creates invoices",
+    )
+E   TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'
+
+mcp_erp_server\server.py:30: TypeError
+___________________ TestValidationAgent.test_missing_fields ___________________
+
+self = <tests.test_validation_agent.TestValidationAgent object at 0x000001C570B44F10>
+
+    def test_missing_fields(self):
+        """Missing fields should produce validation failures."""
+        from agents.validation_agent import validation_node
+    
+        state = {
+            "extracted_data": {
+                "supplier_name": "TechnoVision",
+                # Missing: vat_number, siret, iban, bic, po_number
+            },
+            "errors": [],
+        }
+    
+>       result = validation_node(state)
+                 ^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_validation_agent.py:79: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+agents\validation_agent.py:128: in validation_node
+    validations.append(_validate_supplier(client, supplier_name))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+agents\validation_agent.py:96: in _validate_supplier
+    result = client.call_tool("get_supplier_details", {"supplier_name": supplier_name})
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+agents\validation_agent.py:37: in call_tool
+    from mcp_erp_server import server as erp_server
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """FastMCP server exposing ERP validation and invoice creation tools.
+    
+    Run standalone:
+        python -m mcp_erp_server.server          # stdio transport
+        python -m mcp_erp_server.server --sse     # SSE transport on port 8001
+    """
+    
+    from __future__ import annotations
+    
+    import json
+    import sys
+    from datetime import date
+    
+    from mcp.server.fastmcp import FastMCP
+    
+    from .erp_database import (
+        create_invoice,
+        find_purchase_order,
+        find_supplier_bank,
+        find_supplier_by_name,
+        find_supplier_by_siret,
+        find_supplier_by_vat,
+        init_database,
+    )
+    
+    # Initialize the database on import
+    init_database()
+    
+    # Create the FastMCP server
+>   mcp = FastMCP(
+        "erp-server",
+        description="MCP server for ERP operations ù validates supplier data and creates invoices",
+    )
+E   TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'
+
+mcp_erp_server\server.py:30: TypeError
+=========================== short test summary info ===========================
+FAILED tests/test_graph.py::TestProcessingNode::test_successful_invoice_creation
+FAILED tests/test_mcp_erp_server.py::TestValidateVat::test_valid_vat - TypeEr...
+FAILED tests/test_mcp_erp_server.py::TestValidateVat::test_invalid_vat - Type...
+FAILED tests/test_mcp_erp_server.py::TestValidateVat::test_vat_case_insensitive
+FAILED tests/test_mcp_erp_server.py::TestValidateSiret::test_valid_siret - Ty...
+FAILED tests/test_mcp_erp_server.py::TestValidateSiret::test_invalid_siret - ...
+FAILED tests/test_mcp_erp_server.py::TestValidateSupplierBank::test_valid_bank
+FAILED tests/test_mcp_erp_server.py::TestValidateSupplierBank::test_invalid_bank
+FAILED tests/test_mcp_erp_server.py::TestValidatePurchaseOrder::test_open_po
+FAILED tests/test_mcp_erp_server.py::TestValidatePurchaseOrder::test_closed_po
+FAILED tests/test_mcp_erp_server.py::TestValidatePurchaseOrder::test_missing_po
+FAILED tests/test_mcp_erp_server.py::TestGetSupplierDetails::test_found - Typ...
+FAILED tests/test_mcp_erp_server.py::TestGetSupplierDetails::test_partial_match
+FAILED tests/test_mcp_erp_server.py::TestGetSupplierDetails::test_not_found
+FAILED tests/test_mcp_erp_server.py::TestCreateErpInvoice::test_successful_creation
+FAILED tests/test_mcp_erp_server.py::TestCreateErpInvoice::test_invalid_vat_rejected
+FAILED tests/test_validation_agent.py::TestValidationAgent::test_all_valid - ...
+FAILED tests/test_validation_agent.py::TestValidationAgent::test_invalid_vat
+FAILED tests/test_validation_agent.py::TestValidationAgent::test_missing_fields
+======================== 19 failed, 3 passed in 1.74s =========================

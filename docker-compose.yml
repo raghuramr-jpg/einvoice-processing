@@ -1,0 +1,39 @@
+version: "3.9"
+
+services:
+  # -------------------------------------------------------
+  # FastAPI Gateway — main entry point
+  # -------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - LLM_MODEL=${LLM_MODEL:-llama3.1}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DATABASE_URL=sqlite+aiosqlite:///./invoices.db
+      - UPLOAD_DIR=/app/uploads
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      - mcp-erp
+    restart: unless-stopped
+
+  # -------------------------------------------------------
+  # MCP ERP Server — SSE transport for networked access
+  # -------------------------------------------------------
+  mcp-erp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python -m mcp_erp_server.server --sse
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+
+volumes:
+  uploads:
