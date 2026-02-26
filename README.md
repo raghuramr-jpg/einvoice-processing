@@ -5,55 +5,48 @@ Agentic AI system for **Accounts Payable invoice processing** using the **Model 
 ## Architecture
 
 ```mermaid
-flowchart TD
-    %% Define styles
-    classDef user fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
-    classDef agent fill:#f3e5f5,stroke:#4a148c,stroke-width:2px;
-    classDef mcp fill:#fff3e0,stroke:#e65100,stroke-width:2px;
-    classDef db fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px;
-    classDef review fill:#ffebee,stroke:#c62828,stroke-width:2px;
+---
+config:
+  layout: fixed
+---
+flowchart TB
+ subgraph subGraph0["LangGraph Pipeline"]
+        Ingestion["Ingestion Agent\nOCR + LLM Extraction"]
+        Validation["Validation Agent\nMCP API Checks"]
+        Routing{"Confidence > 0.8\n& All Valid?"}
+        Processing["Processing Agent\nERP Invoice Creation"]
+        Reject["Processing Agent\nRejection Report"]
+  end
+    User(["User"]) --> API["FastAPI Gateway"]
+    API --> Ingestion & AppDB[("App Database\nSQLite")]
+    Ingestion --> Validation
+    Validation --> MCS["MCP ERP Server\nFastMCP"] & Routing
+    MCS --> ERP[("ERP Database")] & ERP
+    ERP -. Results .-> MCS
+    MCS -. Validation Results .-> Validation
+    Routing --> Processing & Reject
+    Processing --> MCS & API
+    Reject --> API
+    AppDB --- Tables["invoices\nline_items\nuser_notifications"]
+    API -. If low confidence\nor rejected .-> Notify["User Notification\nManual Review"]
 
-    User([User]) ::: user
-    API[FastAPI Gateway] ::: user
-    
-    subgraph LangGraph Pipeline
-        Ingestion[Ingestion Agent\nOCR + LLM Extraction] ::: agent
-        Validation[Validation Agent\nMCP API Checks] ::: agent
-        Routing{Confidence > 0.8\n& All Valid?} ::: agent
-        Processing[Processing Agent\nERP Invoice Creation] ::: agent
-        Reject[Processing Agent\nRejection Report] ::: agent
-    end
-    
-    MCS[MCP ERP Server\nFastMCP] ::: mcp
-    ERP[(ERP Database)] ::: db
-    
-    AppDB[(App Database\nSQLite)] ::: db
-    Tables["invoices\nline_items\nuser_notifications"] ::: db
-    
-    User -- "Upload PDF" --> API
-    API -- "Start Workflow" --> Ingestion
-    
-    Ingestion -- "Structured JSON\n+ Confidence Score" --> Validation
-    Validation -- "validate_vat()\nvalidate_siret()\nvalidate_po()" --> MCS
-    MCS -- "Query" --> ERP
-    ERP -. "Results" .-> MCS
-    MCS -. "Validation Results" .-> Validation
-    
-    Validation --> Routing
-    
-    Routing -- "Yes" --> Processing
-    Processing -- "create_erp_invoice()" --> MCS
-    MCS -- "Write" --> ERP
-    
-    Routing -- "No" --> Reject
-    
-    Processing -- "status: processed" --> API
-    Reject -- "status: rejected" --> API
-    
-    API -- "Persist Results" --> AppDB
-    AppDB --- Tables
-    
-    API -. "If low confidence\nor rejected" .-> Notify[User Notification\nManual Review] ::: review
+     User:::user
+     API:::user
+     Ingestion:::agent
+     Validation:::agent
+     Routing:::agent
+     Processing:::agent
+     Reject:::agent
+     MCS:::mcp
+     ERP:::db
+     AppDB:::db
+     Tables:::db
+     Notify:::review
+    classDef user fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef agent fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef mcp fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef db fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef review fill:#ffebee,stroke:#c62828,stroke-width:2px
 ```
 
 ### Services

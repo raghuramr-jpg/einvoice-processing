@@ -62,7 +62,7 @@ class Invoice(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
-    line_items = relationship("LineItem", back_populates="invoice", cascade="all, delete-orphan")
+    line_items = relationship("LineItem", back_populates="invoice", cascade="all, delete-orphan", lazy="selectin")
 
     def to_dict(self) -> dict:
         return {
