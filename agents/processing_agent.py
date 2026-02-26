@@ -48,6 +48,11 @@ def process_node(state: InvoiceProcessingState) -> dict[str, Any]:
 
         if result["success"]:
             logger.info("Invoice created in ERP: %s", result["erp_invoice_id"])
+            
+            # Enrich processing result with agent context
+            result["status"] = "processed"
+            result["confidence_score"] = state.get("extraction_confidence", 1.0)
+            
             return {
                 "processing_result": result,
                 "status": "processed",
@@ -55,6 +60,8 @@ def process_node(state: InvoiceProcessingState) -> dict[str, Any]:
             }
         else:
             errors.append(result["message"])
+            result["status"] = "error"
+            result["confidence_score"] = state.get("extraction_confidence", 1.0)
             return {
                 "processing_result": result,
                 "status": "error",
@@ -81,16 +88,27 @@ def reject_node(state: InvoiceProcessingState) -> dict[str, Any]:
     errors: list[str] = list(state.get("errors", []))
 
     failures = [v for v in validations if not v["valid"]]
+    
+    # Check if we were rejected due to low confidence despite validations passing
+    confidence = state.get("extraction_confidence", 1.0)
+    if not failures and confidence <= 0.8:
+        failures.append({
+            "field": "extraction_confidence",
+            "valid": False,
+            "message": f"Extraction confidence ({confidence:.2f}) is below the required 0.8 threshold."
+        })
 
     rejection_report = {
+        "status": "rejected",
+        "confidence_score": state.get("extraction_confidence", 1.0),
         "rejected": True,
         "invoice_number": extracted.get("invoice_number", "unknown"),
         "supplier_name": extracted.get("supplier_name", "unknown"),
         "failure_count": len(failures),
         "failures": [
             {
-                "field": f["field"],
-                "reason": f["message"],
+                "field": f.get("field", "unknown"),
+                "reason": f.get("message", "unknown"),
             }
             for f in failures
         ],

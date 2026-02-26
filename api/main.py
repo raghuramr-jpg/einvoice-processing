@@ -16,8 +16,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents.graph import process_invoice
-from api.database import AsyncSessionLocal, Invoice, init_db
-from api.schemas import InvoiceListResponse, InvoiceResponse
+from api.database import AsyncSessionLocal, Invoice, LineItem, UserNotification, init_db
+from api.schemas import InvoiceListResponse, InvoiceResponse, UserNotificationListResponse
 
 # Load environment
 load_dotenv()
@@ -108,9 +108,53 @@ async def upload_invoice(
 
         # Update DB record with results
         invoice.status = result.get("status", "error")
-        invoice.extracted_data = json.dumps(
-            {k: v for k, v in result.get("extracted_data", {}).items() if k != "raw_ocr_text"}
-        ) if result.get("extracted_data") else None
+        
+        # Save confidence score
+        confidence = result.get("extraction_confidence", 1.0)
+        invoice.confidence_score = confidence
+
+        extracted = result.get("extracted_data", {})
+        if extracted:
+            invoice.supplier_name = extracted.get("supplier_name")
+            invoice.vat_number = extracted.get("vat_number")
+            invoice.siret = extracted.get("siret")
+            invoice.iban = extracted.get("iban")
+            invoice.bic = extracted.get("bic")
+            invoice.po_number = extracted.get("po_number")
+            invoice.invoice_number = extracted.get("invoice_number")
+            invoice.invoice_date = extracted.get("invoice_date")
+            invoice.total_ht = extracted.get("total_ht")
+            invoice.tva_rate = extracted.get("tva_rate")
+            invoice.tva_amount = extracted.get("tva_amount")
+            invoice.total_ttc = extracted.get("total_ttc")
+            invoice.currency = extracted.get("currency")
+            invoice.raw_ocr_text = extracted.get("raw_ocr_text")
+            
+            # Line items
+            line_items_data = extracted.get("line_items", [])
+            for li_data in line_items_data:
+                try:
+                    qty = float(li_data.get("quantity")) if li_data.get("quantity") is not None else None
+                except (ValueError, TypeError):
+                    qty = None
+                try:
+                    price = float(li_data.get("unit_price")) if li_data.get("unit_price") is not None else None
+                except (ValueError, TypeError):
+                    price = None
+                try:
+                    tot = float(li_data.get("total")) if li_data.get("total") is not None else None
+                except (ValueError, TypeError):
+                    tot = None
+                    
+                line_item = LineItem(
+                    invoice_id=invoice.id,
+                    description=li_data.get("description"),
+                    quantity=qty,
+                    unit_price=price,
+                    total=tot,
+                )
+                db.add(line_item)
+
         invoice.validation_results = json.dumps(result.get("validation_results")) if result.get("validation_results") else None
         invoice.processing_result = json.dumps(result.get("processing_result")) if result.get("processing_result") else None
         invoice.errors = json.dumps(result.get("errors", []))
@@ -118,12 +162,41 @@ async def upload_invoice(
         await db.commit()
         await db.refresh(invoice)
 
+        # Check for manual review requirements
+        needs_review = False
+        review_message = ""
+
+        if invoice.status in ("error", "rejected"):
+            needs_review = True
+            review_message = f"Workflow failed or was rejected. Status: {invoice.status}. Please review manually."
+        elif confidence < 0.80:
+            needs_review = True
+            review_message = f"Low extraction confidence ({confidence:.2f}). Please review manually."
+
+        if needs_review:
+            notification = UserNotification(
+                invoice_id=invoice.id,
+                message=review_message,
+                requires_manual_review=1
+            )
+            db.add(notification)
+            await db.commit()
+
     except Exception as e:
         logger.exception("Invoice processing failed")
         invoice.status = "error"
         invoice.errors = json.dumps([str(e)])
         await db.commit()
         await db.refresh(invoice)
+        
+        # Also notify user on complete crash
+        notification = UserNotification(
+            invoice_id=invoice.id,
+            message=f"System error during processing: {str(e)[:200]}...",
+            requires_manual_review=1
+        )
+        db.add(notification)
+        await db.commit()
 
     return invoice.to_dict()
 
@@ -158,6 +231,27 @@ async def list_invoices(
 
     return {
         "invoices": [inv.to_dict() for inv in invoices],
+        "total": total,
+    }
+
+
+@app.get("/api/notifications", response_model=UserNotificationListResponse)
+async def list_notifications(
+    db: AsyncSession = Depends(get_db),
+    skip: int = 0,
+    limit: int = 50,
+):
+    """List all manual review notifications."""
+    result = await db.execute(
+        select(UserNotification).order_by(UserNotification.created_at.desc()).offset(skip).limit(limit)
+    )
+    notifications = result.scalars().all()
+
+    count_result = await db.execute(select(UserNotification))
+    total = len(count_result.scalars().all())
+
+    return {
+        "notifications": [notif.to_dict() for notif in notifications],
         "total": total,
     }
 

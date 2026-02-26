@@ -9,10 +9,10 @@ from pydantic import BaseModel, Field
 
 
 class LineItem(BaseModel):
-    description: str
-    quantity: float
-    unit_price: float
-    total: float
+    description: Optional[str] = None
+    quantity: Optional[float] = None
+    unit_price: Optional[float] = None
+    total: Optional[float] = None
 
 
 class ExtractedDataResponse(BaseModel):
@@ -24,12 +24,12 @@ class ExtractedDataResponse(BaseModel):
     po_number: Optional[str] = None
     invoice_number: Optional[str] = None
     invoice_date: Optional[str] = None
-    line_items: list[dict[str, Any]] = Field(default_factory=list)
+    line_items: list[LineItem] = Field(default_factory=list)
     total_ht: Optional[float] = None
     tva_rate: Optional[float] = None
     tva_amount: Optional[float] = None
     total_ttc: Optional[float] = None
-    currency: str = "EUR"
+    currency: Optional[str] = None
 
 
 class ValidationDetailResponse(BaseModel):
@@ -45,6 +45,8 @@ class ProcessingResultResponse(BaseModel):
     rejected: Optional[bool] = None
     failures: Optional[list[dict[str, str]]] = None
     recommendation: Optional[str] = None
+    status: Optional[str] = None
+    confidence_score: Optional[float] = None
 
 
 class InvoiceResponse(BaseModel):
@@ -55,9 +57,23 @@ class InvoiceResponse(BaseModel):
     validation_results: Optional[list[ValidationDetailResponse]] = None
     processing_result: Optional[ProcessingResultResponse] = None
     errors: list[str] = Field(default_factory=list)
+    confidence_score: Optional[float] = None
     created_at: datetime
 
 
 class InvoiceListResponse(BaseModel):
     invoices: list[InvoiceResponse]
+    total: int
+
+
+class UserNotificationResponse(BaseModel):
+    id: int
+    invoice_id: Optional[int] = None
+    message: str
+    requires_manual_review: bool
+    created_at: datetime
+
+
+class UserNotificationListResponse(BaseModel):
+    notifications: list[UserNotificationResponse]
     total: int

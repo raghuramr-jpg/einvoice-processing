@@ -23,6 +23,7 @@ class ExtractedInvoiceData(TypedDict, total=False):
     tva_amount: float     # TVA amount
     total_ttc: float      # Total toutes taxes comprises
     currency: str
+    confidence_score: float
     raw_ocr_text: str
 
 

@@ -11,6 +11,7 @@ flowchart TD
     classDef agent fill:#f3e5f5,stroke:#4a148c,stroke-width:2px;
     classDef mcp fill:#fff3e0,stroke:#e65100,stroke-width:2px;
     classDef db fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px;
+    classDef review fill:#ffebee,stroke:#c62828,stroke-width:2px;
 
     User([User]) ::: user
     API[FastAPI Gateway] ::: user
@@ -18,27 +19,41 @@ flowchart TD
     subgraph LangGraph Pipeline
         Ingestion[Ingestion Agent\nOCR + LLM Extraction] ::: agent
         Validation[Validation Agent\nMCP API Checks] ::: agent
+        Routing{Confidence > 0.8\n& All Valid?} ::: agent
         Processing[Processing Agent\nERP Invoice Creation] ::: agent
+        Reject[Processing Agent\nRejection Report] ::: agent
     end
     
     MCS[MCP ERP Server\nFastMCP] ::: mcp
-    ERP[(ERP Database\nSQLite)] ::: db
+    ERP[(ERP Database)] ::: db
     
-    User -- "Upload Invoice" --> API
+    AppDB[(App Database\nSQLite)] ::: db
+    Tables["invoices\nline_items\nuser_notifications"] ::: db
+    
+    User -- "Upload PDF" --> API
     API -- "Start Workflow" --> Ingestion
     
-    Ingestion -- "Structured Data" --> Validation
+    Ingestion -- "Structured JSON\n+ Confidence Score" --> Validation
     Validation -- "validate_vat()\nvalidate_siret()\nvalidate_po()" --> MCS
     MCS -- "Query" --> ERP
     ERP -. "Results" .-> MCS
-    MCS -. "Validation Response" .-> Validation
+    MCS -. "Validation Results" .-> Validation
     
-    Validation -- "Verified Data" --> Processing
+    Validation --> Routing
+    
+    Routing -- "Yes" --> Processing
     Processing -- "create_erp_invoice()" --> MCS
     MCS -- "Write" --> ERP
     
-    Processing -- "Workflow Result\n(Process/Reject)" --> API
-    API -- "Status Response" --> User
+    Routing -- "No" --> Reject
+    
+    Processing -- "status: processed" --> API
+    Reject -- "status: rejected" --> API
+    
+    API -- "Persist Results" --> AppDB
+    AppDB --- Tables
+    
+    API -. "If low confidence\nor rejected" .-> Notify[User Notification\nManual Review] ::: review
 ```
 
 ### Services

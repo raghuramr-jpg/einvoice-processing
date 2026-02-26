@@ -142,8 +142,16 @@ Return a JSON object with EXACTLY these fields (use null if not found):
     "tva_rate": number (e.g. 20.0 for 20%),
     "tva_amount": number,
     "total_ttc": number,
-    "currency": "EUR"
+    "currency": "EUR",
+    "confidence_score": number (0.0 to 1.0, representing your confidence in this extraction)
 }
+
+RULES FOR CONFIDENCE SCORE:
+- Start at 1.0.
+- Subtract 0.20 for ANY major missing fields (e.g. SIRET, TVA, PO Number).
+- Subtract 0.20 if the math doesn't make sense (e.g., total_ht + tva_amount != total_ttc).
+- Subtract 0.10 for minor missing fields (e.g., IBAN, line items not perfectly matching total).
+- If the document does not look like an invoice at all, or most fields are null, score should be less than 0.5.
 
 Return ONLY the JSON object, no markdown fences or additional text."""
 
@@ -189,13 +197,15 @@ def ingestion_node(state: InvoiceProcessingState) -> dict[str, Any]:
 
         extracted = json.loads(content)
         extracted["raw_ocr_text"] = raw_text
+        
+        confidence = float(extracted.get("confidence_score", 0.5))
 
-        logger.info("Extracted invoice data: supplier=%s, invoice=%s",
-                     extracted.get("supplier_name"), extracted.get("invoice_number"))
+        logger.info("Extracted invoice data: supplier=%s, invoice=%s, confidence=%.2f",
+                     extracted.get("supplier_name"), extracted.get("invoice_number"), confidence)
 
         return {
             "extracted_data": extracted,
-            "extraction_confidence": 0.85,  # placeholder
+            "extraction_confidence": confidence,
             "status": "ingested",
             "errors": errors,
         }

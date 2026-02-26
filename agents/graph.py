@@ -27,8 +27,9 @@ def _should_continue_after_ingestion(state: InvoiceProcessingState) -> str:
 
 
 def _should_process_or_reject(state: InvoiceProcessingState) -> str:
-    """Route after validation: process if all passed, reject otherwise."""
-    if state.get("all_validations_passed"):
+    """Route after validation: process if all passed and confidence > 0.8, reject otherwise."""
+    confidence = state.get("extraction_confidence", 1.0)
+    if state.get("all_validations_passed") and confidence > 0.8:
         return "process"
     return "reject"
 
