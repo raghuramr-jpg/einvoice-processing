@@ -11,7 +11,7 @@ config:
 ---
 flowchart TB
  subgraph subGraph0["LangGraph Pipeline"]
-        Ingestion["Ingestion Agent\nOCR + LLM Extraction"]
+        Ingestion["Ingestion Agent\nOCR + RAG + LLM Extraction"]
         Validation["Validation Agent\nMCP API Checks"]
         Routing{"Confidence > 0.8\n& All Valid?"}
         Processing["Processing Agent\nERP Invoice Creation"]
@@ -19,9 +19,12 @@ flowchart TB
   end
     User(["User"]) --> API["FastAPI Gateway"]
     API --> Ingestion & AppDB[("App Database\nSQLite")]
+    Ingestion -. "Search" .-> VectorDB[("Vector DB\nChromaDB")]
+    VectorDB -. "Matches" .-> Ingestion
     Ingestion --> Validation
     Validation --> MCS["MCP ERP Server\nFastMCP"] & Routing
     MCS --> ERP[("ERP Database")] & ERP
+    ERP === "Sync Suppliers" ===> VectorDB
     ERP -. Results .-> MCS
     MCS -. Validation Results .-> Validation
     Routing --> Processing & Reject
@@ -54,7 +57,7 @@ flowchart TB
 | Service | Technology | Description |
 |---------|-----------|-------------|
 | **API Gateway** | FastAPI | REST API for invoice upload and status |
-| **Ingestion Agent** | LangGraph + OpenAI | OCR + LLM-based data extraction |
+| **Ingestion Agent** | LangGraph + ChromaDB + OpenAI | OCR + RAG fuzzy matching + LLM data extraction |
 | **Validation Agent** | LangGraph + MCP Client | Validates VAT, SIRET, bank, PO against ERP |
 | **Processing Agent** | LangGraph + MCP Client | Creates invoice in ERP or generates rejection |
 | **MCP ERP Server** | FastMCP | Exposes ERP tools via Model Context Protocol |
@@ -89,10 +92,14 @@ cp .env.example .env
 
 # Install dependencies
 uv sync
-# or: pip install -e ".[dev]"
+uv add chromadb langchain-chroma
+# or: pip install -e ".[dev]" chromadb langchain-chroma
 
 # Seed the ERP database
 # uv run python -m scripts.seed_erp
+
+# Initialize the Vector Store (ChromaDB) for RAG
+uv run python scripts/sync_db.py
 
 # Seed the mock Supplier data for validation testing
 uv run python scripts/seed_suppliers.py
@@ -135,9 +142,10 @@ ap-invoice-agent/
 │   ├── server.py            # 6 MCP tools
 │   ├── erp_database.py      # SQLite ERP simulation
 │   └── models.py            # Pydantic models
+├── chroma_db/               # Local Vector Database for RAG
 ├── agents/                  # LangGraph Agents
 │   ├── state.py             # Shared state
-│   ├── ingestion_agent.py   # OCR + LLM extraction
+│   ├── ingestion_agent.py   # OCR + RAG context + LLM extraction
 │   ├── validation_agent.py  # MCP validation calls
 │   ├── processing_agent.py  # ERP invoice creation
 │   └── graph.py             # LangGraph workflow
@@ -146,6 +154,7 @@ ap-invoice-agent/
 │   ├── schemas.py           # Response models
 │   └── database.py          # SQLAlchemy persistence with Supplier/Invoice tables
 ├── scripts/                 # Utility scripts
+│   ├── sync_db.py           # Embed and sync ERP suppliers to ChromaDB
 │   └── seed_suppliers.py    # Seed mock supplier data
 └── tests/                   # Test suite
 ```

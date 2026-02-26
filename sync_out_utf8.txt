@@ -1,0 +1,32 @@
+﻿c:\installations\aiproj
+ects\ap-invoice-agent\.
+venv\Scripts\python.exe
+ : C:\Users\Raghuram Re
+ddy\AppData\Local\Progr
+ams\Python\Python311\py
+thon.exe: can't open 
+file 'c:\\installations
+\\aiprojects\\ap-invoic
+e-agent\\scripts\\sync_
+suppliers_to_vector_db.
+py': [Errno 2] No such 
+file or directory
+At line:1 char:1
++ c:\installations\aipr
+ojects\ap-invoice-agent
+\.venv\Scripts\python.e
+xe ...
++ ~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~
+~~
+    + CategoryInfo     
+         : NotSpecifi  
+  ed: (C:\Users\Ragh   
+ ur...le or directo    
+ry:String) [], Rem    
+oteException
+    + FullyQualifiedEr 
+   rorId : NativeComm  
+  andError
+ 

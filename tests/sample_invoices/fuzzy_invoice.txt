@@ -1,0 +1,17 @@
+TechNova Systems - Invoice #9983
+Date: 2025-05-15
+
+Bon de commande: PO-2025-001
+
+This is a bill from TechnoVision SAS, but we are using our old trading name "TechNova Systems" on this document.
+Please process payment to our usual bank account holding.
+
+Description                 Qty   Unit Price      Total
+Server Rack Unit            2     2500.00         5000.00
+Installation Fees           1     1500.00         1500.00
+
+Total HT: 6500.00
+TVA (20%): 1300.00
+Total TTC: 7800.00
+
+Thank you for your business.

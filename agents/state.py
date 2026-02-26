@@ -44,6 +44,7 @@ class InvoiceProcessingState(TypedDict, total=False):
     # Ingestion
     extracted_data: ExtractedInvoiceData
     extraction_confidence: float
+    candidate_suppliers: list[dict[str, Any]]
 
     # Validation
     validation_results: list[ValidationDetail]

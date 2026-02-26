@@ -10,6 +10,8 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
+from langchain_chroma import Chroma
+from langchain_community.embeddings import OllamaEmbeddings
 
 from .state import InvoiceProcessingState
 
@@ -178,10 +180,39 @@ def ingestion_node(state: InvoiceProcessingState) -> dict[str, Any]:
         raw_text = _ocr_extract(file_path)
         logger.info("OCR extracted %d characters", len(raw_text))
 
-        # Step 2: LLM extraction
+        # Step 2: Retrieve candidate suppliers from Vector DB
+        logger.info("Retrieving candidate suppliers from Vector DB")
+        try:
+            embeddings = OllamaEmbeddings(model="nomic-embed-text")
+            persist_dir = str(Path(__file__).parent.parent / "chroma_db")
+            vector_store = Chroma(
+                collection_name="erp_suppliers",
+                embedding_function=embeddings,
+                persist_directory=persist_dir
+            )
+            
+            # Use the first 1000 characters (usually containing vendor header) for semantic search
+            query_text = raw_text[:1000]
+            docs = vector_store.similarity_search(query_text, k=3)
+            candidate_suppliers = [doc.metadata for doc in docs]
+        except Exception as e:
+            logger.warning(f"Failed to retrieve candidate suppliers from RAG: {e}")
+            candidate_suppliers = []
+
+        # Step 3: LLM extraction
         llm = _get_llm()
+        
+        candidates_json = json.dumps(candidate_suppliers, indent=2)
+        
+        dynamic_system_prompt = _EXTRACTION_SYSTEM_PROMPT + f"""
+        
+CANDIDATE SUPPLIERS FROM ERP:
+{candidates_json}
+
+If the vendor in the OCR text appears to be one of these Candidate Suppliers (even if spelled differently, abbreviated, or missing details), you MUST prioritize extracting the exact Name, vat_number, and siret from the Candidate Supplier record rather than guessing from the OCR text.
+"""
         messages = [
-            SystemMessage(content=_EXTRACTION_SYSTEM_PROMPT),
+            SystemMessage(content=dynamic_system_prompt),
             HumanMessage(content=f"Extract invoice data from the following OCR text:\n\n{raw_text}"),
         ]
         response = llm.invoke(messages)
@@ -206,6 +237,7 @@ def ingestion_node(state: InvoiceProcessingState) -> dict[str, Any]:
         return {
             "extracted_data": extracted,
             "extraction_confidence": confidence,
+            "candidate_suppliers": candidate_suppliers,
             "status": "ingested",
             "errors": errors,
         }
