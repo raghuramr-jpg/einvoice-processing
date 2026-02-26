@@ -29,6 +29,27 @@ class Base(DeclarativeBase):
     pass
 
 
+class Supplier(Base):
+    __tablename__ = "suppliers"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), nullable=False)
+    vat_number = Column(String(100), nullable=True)
+    iban = Column(String(100), nullable=True)
+    is_valid = Column(Integer, default=1)  # 1 indicating True, 0 indicating False
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "vat_number": self.vat_number,
+            "iban": self.iban,
+            "is_valid": bool(self.is_valid),
+            "created_at": self.created_at,
+        }
+
+
 class Invoice(Base):
     __tablename__ = "invoices"
 

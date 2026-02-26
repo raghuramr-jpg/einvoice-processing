@@ -92,7 +92,10 @@ uv sync
 # or: pip install -e ".[dev]"
 
 # Seed the ERP database
-uv run python -m scripts.seed_erp
+# uv run python -m scripts.seed_erp
+
+# Seed the mock Supplier data for validation testing
+uv run python scripts/seed_suppliers.py
 
 # Start the API server
 uv run uvicorn api.main:app --reload
@@ -141,7 +144,9 @@ ap-invoice-agent/
 ├── api/                     # FastAPI Gateway
 │   ├── main.py              # Routes
 │   ├── schemas.py           # Response models
-│   └── database.py          # SQLAlchemy persistence
+│   └── database.py          # SQLAlchemy persistence with Supplier/Invoice tables
+├── scripts/                 # Utility scripts
+│   └── seed_suppliers.py    # Seed mock supplier data
 └── tests/                   # Test suite
 ```
 
