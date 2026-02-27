@@ -23,15 +23,15 @@ flowchart TB
     VectorDB -. "Matches" .-> Ingestion
     Ingestion --> Validation
     Validation --> MCS["MCP ERP Server\nFastMCP"] & Routing
-    MCS --> ERP[("ERP Database")] & ERP
-    ERP === "Sync Suppliers" ===> VectorDB
-    ERP -. Results .-> MCS
-    MCS -. Validation Results .-> Validation
+    MCS --> ERP[("ERP Database")]
+    ERP == "Sync Suppliers" ==> VectorDB
+    ERP -. "Results" .-> MCS
+    MCS -. "Validation Results" .-> Validation
     Routing --> Processing & Reject
     Processing --> MCS & API
     Reject --> API
     AppDB --- Tables["invoices\nline_items\nuser_notifications"]
-    API -. If low confidence\nor rejected .-> Notify["User Notification\nManual Review"]
+    API -. "If low confidence\nor rejected" .-> Notify["User Notification\nManual Review"]
 
      User:::user
      API:::user
@@ -50,6 +50,35 @@ flowchart TB
     classDef mcp fill:#fff3e0,stroke:#e65100,stroke-width:2px
     classDef db fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
     classDef review fill:#ffebee,stroke:#c62828,stroke-width:2px
+```
+
+## Data Flow Diagram
+
+```mermaid
+flowchart LR
+    User([User]) -- "Invoice Document" --> Gateway[API Gateway]
+    Gateway -- "Raw Text" --> Ingestion[Ingestion Agent]
+    
+    ERP[(ERP Database)] -- "Supplier Master Data" --> Sync[Sync Script]
+    Sync -- "Vector Embeddings" --> VectorDB[(ChromaDB)]
+    
+    Ingestion -- "Context Query" --> VectorDB
+    VectorDB -- "Candidate Suppliers" --> Ingestion
+    
+    Ingestion -- "Extracted Data JSON" --> Validation[Validation Agent]
+    Validation -- "Validation Requests (VAT, SIRET, etc.)" --> MCP[MCP Server]
+    MCP -- "Queries" --> ERP
+    ERP -- "Validation Results" --> MCP
+    MCP -- "Truth Scores" --> Validation
+    
+    Validation -- "Verified Data (Confidence > 0.8)" --> Processing[Processing Agent]
+    Validation -- "Rejected Data (Confidence < 0.8)" --> Gateway
+    
+    Processing -- "Create Invoice Command" --> MCP
+    MCP -- "Insert Record" --> ERP
+    
+    Processing -- "Status Report / Invoice ID" --> Gateway
+    Gateway -- "Final Response" --> User
 ```
 
 ### Services
