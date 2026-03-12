@@ -18,9 +18,12 @@ services:
       - DATABASE_URL=sqlite+aiosqlite:///./invoices.db
       - UPLOAD_DIR=/app/uploads
     volumes:
+      - .:/app
       - uploads:/app/uploads
     depends_on:
       - mcp-erp
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   # -------------------------------------------------------
@@ -33,6 +36,10 @@ services:
     command: python -m mcp_erp_server.server --sse
     ports:
       - "8001:8001"
+    volumes:
+      - .:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
 volumes:

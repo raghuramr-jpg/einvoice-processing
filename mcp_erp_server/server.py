@@ -20,6 +20,7 @@ from .erp_database import (
     find_supplier_by_name,
     find_supplier_by_siret,
     find_supplier_by_vat,
+    find_supplier_policy,
     init_database,
 )
 
@@ -188,6 +189,148 @@ def get_supplier_details(supplier_name: str) -> str:
         "found": False,
         "supplier": None,
         "message": f"No active supplier found matching '{supplier_name}'",
+    })
+
+
+# ---------------------------------------------------------------------------
+# Tool 5.5: Validate Supplier Policy
+# ---------------------------------------------------------------------------
+@mcp.tool()
+def validate_supplier_policy(
+    vat_number: str,
+    po_number: str = "",
+    total_amount: float = 0.0,
+    currency: str = "EUR",
+) -> str:
+    """Validate invoice details against the supplier's policies in the ERP.
+
+    Checks:
+      - Invoice amount vs max allowed cap
+      - PO requirement (unless supplier allows PO-free up to a limit)
+      - Currency match against supplier policy
+      - Whether the amount triggers a manual approval requirement
+
+    Args:
+        vat_number: Supplier VAT number used to identify the supplier
+        po_number: The PO number present on the invoice (if any)
+        total_amount: The total amount (TTC) of the invoice
+        currency: Currency code on the invoice (default EUR)
+
+    Returns:
+        JSON with:
+          valid (bool), requires_approval (bool), payment_terms_days (int),
+          policy_details (dict), message (str)
+    """
+    supplier = find_supplier_by_vat(vat_number.strip().upper())
+    if not supplier:
+        return json.dumps({
+            "valid": False,
+            "requires_approval": False,
+            "payment_terms_days": None,
+            "policy_details": {},
+            "message": f"Cannot validate policy: supplier with VAT {vat_number} not found",
+        })
+
+    policy = find_supplier_policy(supplier["id"])
+    if not policy:
+        return json.dumps({
+            "valid": True,
+            "requires_approval": False,
+            "payment_terms_days": 30,
+            "policy_details": {},
+            "message": f"No specific policy configured for {supplier['name']}. Proceeding with defaults.",
+        })
+
+    policy_details = {
+        "requires_po": bool(policy["requires_po"]),
+        "max_amount": policy["max_amount"],
+        "allowed_without_po_max": policy["allowed_without_po_max"],
+        "currency": policy["currency"],
+        "approval_required_above": policy["approval_required_above"],
+        "payment_terms_days": policy["payment_terms_days"],
+        "notes": policy["notes"],
+    }
+
+    # --- Check 1: Currency mismatch ---
+    if currency.strip().upper() != policy["currency"].strip().upper():
+        return json.dumps({
+            "valid": False,
+            "requires_approval": False,
+            "payment_terms_days": policy["payment_terms_days"],
+            "policy_details": policy_details,
+            "message": (
+                f"Currency mismatch: invoice is in {currency.upper()} but "
+                f"{supplier['name']} policy requires {policy['currency']}."
+            ),
+        })
+
+    # --- Check 2: Invoice amount exceeds hard cap ---
+    if policy["max_amount"] and total_amount > policy["max_amount"]:
+        return json.dumps({
+            "valid": False,
+            "requires_approval": False,
+            "payment_terms_days": policy["payment_terms_days"],
+            "policy_details": policy_details,
+            "message": (
+                f"Invoice amount {total_amount:.2f} {currency} exceeds the maximum allowed "
+                f"{policy['max_amount']:.2f} {policy['currency']} for {supplier['name']}."
+            ),
+        })
+
+    # --- Check 3: PO requirement ---
+    has_po = bool(po_number.strip())
+    if policy["requires_po"] and not has_po:
+        # Strict PO suppliers — no invoice without a PO
+        return json.dumps({
+            "valid": False,
+            "requires_approval": False,
+            "payment_terms_days": policy["payment_terms_days"],
+            "policy_details": policy_details,
+            "message": (
+                f"{supplier['name']} policy requires a valid Purchase Order. "
+                "No PO number was provided on the invoice."
+            ),
+        })
+    elif not policy["requires_po"] and not has_po:
+        # PO-optional supplier — allowed only up to allowed_without_po_max
+        po_free_limit = policy["allowed_without_po_max"]
+        if po_free_limit and total_amount > po_free_limit:
+            return json.dumps({
+                "valid": False,
+                "requires_approval": False,
+                "payment_terms_days": policy["payment_terms_days"],
+                "policy_details": policy_details,
+                "message": (
+                    f"{supplier['name']} allows PO-free invoices only up to "
+                    f"{po_free_limit:.2f} {policy['currency']}. "
+                    f"This invoice amount {total_amount:.2f} {currency} exceeds that limit. "
+                    "Please attach a PO."
+                ),
+            })
+
+    # --- Check 4: Approval threshold ---
+    requires_approval = bool(
+        policy["approval_required_above"]
+        and total_amount > policy["approval_required_above"]
+    )
+
+    approval_note = ""
+    if requires_approval:
+        approval_note = (
+            f" NOTE: Amount {total_amount:.2f} {currency} exceeds the approval threshold "
+            f"({policy['approval_required_above']:.2f} {policy['currency']}). "
+            "Manual approval is required before payment."
+        )
+
+    return json.dumps({
+        "valid": True,
+        "requires_approval": requires_approval,
+        "payment_terms_days": policy["payment_terms_days"],
+        "policy_details": policy_details,
+        "message": (
+            f"Invoice passes all supplier policies for {supplier['name']}."
+            + approval_note
+        ),
     })
 
 

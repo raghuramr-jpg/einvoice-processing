@@ -1,6 +1,8 @@
 # AP Invoice Processing Agent 🧾🤖
 
-Agentic AI system for **Accounts Payable invoice processing** using the **Model Context Protocol (MCP)** for ERP integration and **LangGraph** for multi-agent orchestration.
+Agentic AI system for **Accounts Payable invoice processing** using the **Model Context Protocol (MCP)** for ERP integration, **LangGraph** for multi-agent orchestration, and **ChromaDB** for RAG-based supplier fuzzy matching with embedded supplier policy rules.
+
+---
 
 ## Architecture
 
@@ -10,28 +12,37 @@ config:
   layout: fixed
 ---
 flowchart TB
- subgraph subGraph0["LangGraph Pipeline"]
+ subgraph Pipeline["LangGraph Pipeline"]
         Ingestion["Ingestion Agent\nOCR + RAG + LLM Extraction"]
-        Validation["Validation Agent\nMCP API Checks"]
+        Validation["Validation Agent\nMCP API + Policy Checks"]
         Routing{"Confidence > 0.8\n& All Valid?"}
         Processing["Processing Agent\nERP Invoice Creation"]
         Reject["Processing Agent\nRejection Report"]
   end
+ subgraph ERP_SERVER["MCP ERP Server (FastMCP)"]
+        T1["validate_vat"]
+        T2["validate_siret"]
+        T3["validate_supplier_bank"]
+        T4["validate_purchase_order"]
+        T5["validate_supplier_policy\n(amount · PO · currency · approval)"]
+        T6["create_erp_invoice"]
+  end
     User(["User"]) --> API["FastAPI Gateway"]
-    API --> Ingestion & AppDB[("App Database\nSQLite")]
-    Ingestion -. "Search" .-> VectorDB[("Vector DB\nChromaDB")]
-    VectorDB -. "Matches" .-> Ingestion
+    API --> Ingestion & AppDB[("App DB\nSQLite")]
+    Ingestion -. "Semantic Search\n(supplier + policy context)" .-> VectorDB[("ChromaDB\nRAG Store")]
+    VectorDB -. "Candidate Suppliers\n+ Policy Metadata" .-> Ingestion
     Ingestion --> Validation
-    Validation --> MCS["MCP ERP Server\nFastMCP"] & Routing
-    MCS --> ERP[("ERP Database")]
-    ERP == "Sync Suppliers" ==> VectorDB
-    ERP -. "Results" .-> MCS
-    MCS -. "Validation Results" .-> Validation
+    Validation --> T1 & T2 & T3 & T4 & T5
+    T1 & T2 & T3 & T4 & T5 --> ERP[("ERP DB\nSQLite")]
+    ERP -. "Results" .-> T1 & T2 & T3 & T4 & T5
+    T1 & T2 & T3 & T4 & T5 -. "Validation Results" .-> Validation
+    Validation --> Routing
+    ERP == "sync_db.py\n(suppliers + policies)" ==> VectorDB
     Routing --> Processing & Reject
-    Processing --> MCS & API
-    Reject --> API
-    AppDB --- Tables["invoices\nline_items\nuser_notifications"]
-    API -. "If low confidence\nor rejected" .-> Notify["User Notification\nManual Review"]
+    Processing --> T6
+    T6 --> ERP
+    Processing & Reject --> API
+    API -. "Low confidence\nor rejected" .-> Notify["Manual Review\nNotification"]
 
      User:::user
      API:::user
@@ -40,98 +51,179 @@ flowchart TB
      Routing:::agent
      Processing:::agent
      Reject:::agent
-     MCS:::mcp
+     T1:::tool
+     T2:::tool
+     T3:::tool
+     T4:::tool
+     T5:::policy
+     T6:::tool
      ERP:::db
      AppDB:::db
-     Tables:::db
+     VectorDB:::rag
      Notify:::review
-    classDef user fill:#e1f5fe,stroke:#01579b,stroke-width:2px
-    classDef agent fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
-    classDef mcp fill:#fff3e0,stroke:#e65100,stroke-width:2px
-    classDef db fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef user   fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef agent  fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef tool   fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef policy fill:#fff8e1,stroke:#f57f17,stroke-width:2px,stroke-dasharray:4
+    classDef db     fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef rag    fill:#e0f2f1,stroke:#004d40,stroke-width:2px
     classDef review fill:#ffebee,stroke:#c62828,stroke-width:2px
 ```
 
-## Data Flow Diagram
+---
+
+## Data Flow
 
 ```mermaid
 flowchart LR
-    User([User]) -- "Invoice Document" --> Gateway[API Gateway]
-    Gateway -- "Raw Text" --> Ingestion[Ingestion Agent]
-    
-    ERP[(ERP Database)] -- "Supplier Master Data" --> Sync[Sync Script]
-    Sync -- "Vector Embeddings" --> VectorDB[(ChromaDB)]
-    
-    Ingestion -- "Context Query" --> VectorDB
-    VectorDB -- "Candidate Suppliers" --> Ingestion
-    
-    Ingestion -- "Extracted Data JSON" --> Validation[Validation Agent]
-    Validation -- "Validation Requests (VAT, SIRET, etc.)" --> MCP[MCP Server]
-    MCP -- "Queries" --> ERP
-    ERP -- "Validation Results" --> MCP
-    MCP -- "Truth Scores" --> Validation
-    
-    Validation -- "Verified Data (Confidence > 0.8)" --> Processing[Processing Agent]
-    Validation -- "Rejected Data (Confidence < 0.8)" --> Gateway
-    
-    Processing -- "Create Invoice Command" --> MCP
-    MCP -- "Insert Record" --> ERP
-    
-    Processing -- "Status Report / Invoice ID" --> Gateway
-    Gateway -- "Final Response" --> User
+    User(["User"]) -- "Invoice PDF/TXT" --> GW["API Gateway"]
+    GW --> Ing["Ingestion Agent\nOCR → LLM"]
+
+    ERP[(ERP DB)] -- "Suppliers +\nPolicies" --> Sync["sync_db.py"]
+    Sync -- "Embeddings\n(name + policy text)" --> RAG[(ChromaDB)]
+
+    Ing -- "Context query\n(first 1000 chars)" --> RAG
+    RAG -- "Candidate suppliers\n+ policy metadata" --> Ing
+
+    Ing -- "Extracted JSON" --> Val["Validation Agent"]
+
+    subgraph MCP["MCP ERP Server"]
+        V1["VAT / SIRET / Bank / PO"]
+        V2["Supplier Policy\n(cap · PO · currency · approval)"]
+    end
+
+    Val --> V1 & V2
+    V1 & V2 --> ERP
+    ERP -. "Truth data" .-> V1 & V2
+    V1 & V2 -. "Pass / Fail / requires_approval" .-> Val
+
+    Val -- "All passed\nconfidence > 0.8" --> Proc["Processing Agent"]
+    Val -- "Failures" --> GW
+    Proc -- "create_erp_invoice" --> ERP
+    Proc -- "Invoice ID" --> GW --> User
 ```
 
-### Services
+---
 
-| Service | Technology | Description |
-|---------|-----------|-------------|
+## Services
+
+| Component | Technology | Description |
+|-----------|-----------|-------------|
 | **API Gateway** | FastAPI | REST API for invoice upload and status |
-| **Ingestion Agent** | LangGraph + ChromaDB + OpenAI | OCR + RAG fuzzy matching + LLM data extraction |
-| **Validation Agent** | LangGraph + MCP Client | Validates VAT, SIRET, bank, PO against ERP |
-| **Processing Agent** | LangGraph + MCP Client | Creates invoice in ERP or generates rejection |
+| **Ingestion Agent** | LangGraph React Agent + ChromaDB | OCR → RAG fuzzy matching → Agent extraction (create_react_agent) |
+| **Validation Agent** | LangGraph + MCP Client | Validates VAT, SIRET, bank, PO, and supplier policies |
+| **Processing Agent** | LangGraph + MCP Client | Posts validated invoice to ERP |
 | **MCP ERP Server** | FastMCP | Exposes ERP tools via Model Context Protocol |
+| **RAG Store** | ChromaDB + OllamaEmbeddings | Supplier embeddings with embedded policy context |
 
-### MCP ERP Tools
+---
+
+## MCP ERP Tools
 
 | Tool | Purpose |
 |------|---------|
 | `validate_vat` | Check VAT number in ERP supplier master |
 | `validate_siret` | Check French SIRET number |
 | `validate_supplier_bank` | Verify IBAN/BIC against supplier records |
-| `validate_purchase_order` | Confirm PO exists and is open |
+| `validate_purchase_order` | Confirm PO exists and is open/receivable |
 | `get_supplier_details` | Look up supplier by name |
-| `create_erp_invoice` | Post invoice to ERP system |
+| `validate_supplier_policy` | Enforce supplier-specific business rules (see below) |
+| `create_erp_invoice` | Post approved invoice to ERP |
+
+---
+
+## Supplier Policies
+
+Each supplier has a policy enforced at validation time by `validate_supplier_policy`. The tool checks four rules in sequence:
+
+| Rule | Description |
+|------|------------|
+| **Currency** | Invoice currency must match supplier's contracted currency |
+| **Amount cap** | Invoice total must not exceed `max_amount` |
+| **PO requirement** | Strict suppliers require a PO number; PO-optional suppliers may submit without PO up to `allowed_without_po_max` |
+| **Approval threshold** | Amounts above `approval_required_above` set `requires_approval: true` in the response |
+
+### Supplier Policy Table
+
+| Supplier | PO Required? | Max Cap | PO-Free Limit | Approval Threshold | Payment Terms |
+|----------|-------------|---------|---------------|-------------------|---------------|
+| TechnoVision SAS | ✅ Yes | €50,000 | — | €30,000 | Net 30 |
+| Fournitures Dupont SARL | ✅ Yes | **€10,000** | — | €8,000 | Net 45 |
+| LogiServ Europe SA | ❌ No | €100,000 | **€5,000** | €50,000 | Net 60 |
+| GreenSupply France | ✅ Yes | €25,000 | — | €20,000 | Net 30 |
+| MétalPro Industries | ✅ Yes | €75,000 | — | **€40,000** | Net 90 |
+
+The `validate_supplier_policy` response includes:
+```json
+{
+  "valid": true,
+  "requires_approval": true,
+  "payment_terms_days": 90,
+  "policy_details": { "requires_po": true, "max_amount": 75000, ... },
+  "message": "Invoice passes all supplier policies for MétalPro Industries. NOTE: Amount 47600.00 EUR exceeds the approval threshold (40000.00 EUR)."
+}
+```
+
+---
+
+## RAG: Supplier + Policy Embeddings
+
+The `sync_db.py` script joins `suppliers` with `supplier_policies` and creates a rich document for each supplier before embedding into ChromaDB:
+
+```
+Supplier Name: LogiServ Europe SA
+Address: 8 Boulevard Haussmann, Marseille, France
+VAT: FR31456789012  SIRET: 45678901200035
+Invoice Policy: does NOT require a Purchase Order (PO-free invoices allowed up to 5000 EUR).
+               Maximum invoice cap EUR 100000. Payment terms 60 days.
+Business Notes: Logistics partner. PO not required for invoices up to EUR 5,000 (spot services)...
+```
+
+This allows the **Ingestion Agent** to retrieve not just supplier identity but also applicable business rules during extraction.
+
+---
+
+## Test Invoice Scenarios
+
+Five policy-scenario PDFs can be generated for end-to-end testing:
+
+```bash
+uv run python scripts/generate_policy_test_invoices.py
+```
+
+| Invoice PDF | Supplier | Amount TTC | PO? | Expected Outcome |
+|-------------|----------|-----------|-----|-----------------|
+| `invoice_technovision_pass.pdf` | TechnoVision SAS | €14,520 | ✅ | ✅ PASS |
+| `invoice_dupont_fail_amount.pdf` | Fournitures Dupont | €14,280 | ✅ | ❌ FAIL — over €10k cap |
+| `invoice_logiserv_no_po_pass.pdf` | LogiServ Europe SA | €3,900 | ❌ | ✅ PASS — PO optional under €5k |
+| `invoice_green_fail_no_po.pdf` | GreenSupply France | €9,576 | ❌ | ❌ FAIL — PO required |
+| `invoice_metalpro_approval.pdf` | MétalPro Industries | €57,120 | ✅ | ⚠️ PASS + approval required |
+
+---
 
 ## Quick Start
 
 ### Prerequisites
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
-- [Ollama](https://ollama.com/) running locally (default) or an OpenAI API key
+- [Ollama](https://ollama.com/) running locally (default) **or** an OpenAI API key
 
 ### Setup
 
 ```bash
-# Clone and enter project
-cd ap-invoice-agent
-
-# Create .env file
-cp .env.example .env
-# Edit .env and configure your LLM provider (Ollama or OpenAI)
-
 # Install dependencies
 uv sync
-uv add chromadb langchain-chroma
-# or: pip install -e ".[dev]" chromadb langchain-chroma
 
-# Seed the ERP database
-# uv run python -m scripts.seed_erp
+# Configure your LLM provider
+cp .env.example .env
+# Edit .env — set OPENAI_API_KEY or leave as-is for Ollama
 
-# Initialize the Vector Store (ChromaDB) for RAG
+# (Re-)seed the ERP database with suppliers + policies
+uv run python -c "from mcp_erp_server.erp_database import init_database; init_database()"
+
+# Sync suppliers + policies into ChromaDB RAG store
+# Requires Ollama running with: ollama pull nomic-embed-text
 uv run python scripts/sync_db.py
-
-# Seed the mock Supplier data for validation testing
-uv run python scripts/seed_suppliers.py
 
 # Start the API server
 uv run uvicorn api.main:app --reload
@@ -142,7 +234,7 @@ uv run uvicorn api.main:app --reload
 ```bash
 # Upload a sample invoice
 curl -X POST http://localhost:8000/api/invoices/upload \
-  -F "file=@tests/sample_invoices/sample_invoice.txt"
+  -F "file=@tests/sample_invoices/invoice_technovision_pass.pdf"
 
 # Check invoice status
 curl http://localhost:8000/api/invoices/1
@@ -154,7 +246,11 @@ curl http://localhost:8000/api/invoices
 ### Run Tests
 
 ```bash
+# Full test suite (13 tests — includes supplier policy checks)
 uv run pytest tests/ -v
+
+# Policy tests only
+uv run pytest tests/test_validation_agent.py -v -k "policy"
 ```
 
 ### Docker
@@ -163,30 +259,38 @@ uv run pytest tests/ -v
 docker compose up --build
 ```
 
+---
+
 ## Project Structure
 
 ```
 ap-invoice-agent/
-├── mcp_erp_server/          # MCP ERP Server (FastMCP)
-│   ├── server.py            # 6 MCP tools
-│   ├── erp_database.py      # SQLite ERP simulation
-│   └── models.py            # Pydantic models
-├── chroma_db/               # Local Vector Database for RAG
-├── agents/                  # LangGraph Agents
-│   ├── state.py             # Shared state
-│   ├── ingestion_agent.py   # OCR + RAG context + LLM extraction
-│   ├── validation_agent.py  # MCP validation calls
-│   ├── processing_agent.py  # ERP invoice creation
-│   └── graph.py             # LangGraph workflow
-├── api/                     # FastAPI Gateway
-│   ├── main.py              # Routes
-│   ├── schemas.py           # Response models
-│   └── database.py          # SQLAlchemy persistence with Supplier/Invoice tables
-├── scripts/                 # Utility scripts
-│   ├── sync_db.py           # Embed and sync ERP suppliers to ChromaDB
-│   └── seed_suppliers.py    # Seed mock supplier data
-└── tests/                   # Test suite
+├── mcp_erp_server/                  # MCP ERP Server (FastMCP)
+│   ├── server.py                    # 7 MCP tools (incl. validate_supplier_policy)
+│   ├── erp_database.py              # SQLite ERP simulation + supplier_policies table
+│   └── models.py                    # Pydantic models
+├── chroma_db/                       # Local ChromaDB vector store (RAG)
+├── agents/                          # LangGraph Agents
+│   ├── state.py                     # Shared pipeline state
+│   ├── ingestion_agent.py           # OCR + RAG context + LangGraph create_react_agent
+│   ├── validation_agent.py          # MCP validation (VAT, SIRET, bank, PO, policy)
+│   ├── processing_agent.py          # ERP invoice creation
+│   └── graph.py                     # LangGraph workflow definition
+├── api/                             # FastAPI Gateway
+│   ├── main.py                      # Routes
+│   ├── schemas.py                   # Response models
+│   └── database.py                  # SQLAlchemy persistence
+├── scripts/                         # Utility scripts
+│   ├── sync_db.py                   # Embed suppliers + policies into ChromaDB
+│   ├── generate_policy_test_invoices.py  # Generate 5 policy-scenario PDFs
+│   └── generate_sample_pdfs.py      # Generate basic sample PDFs
+└── tests/
+    ├── test_validation_agent.py     # 13 tests incl. all policy scenarios
+    ├── test_mcp_erp_server.py
+    └── sample_invoices/             # Test invoice PDFs
 ```
+
+---
 
 ## License
 

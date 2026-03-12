@@ -52,6 +52,18 @@ CREATE TABLE IF NOT EXISTS suppliers (
     active      INTEGER NOT NULL DEFAULT 1
 );
 
+CREATE TABLE IF NOT EXISTS supplier_policies (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    supplier_id             INTEGER NOT NULL REFERENCES suppliers(id) UNIQUE,
+    requires_po             INTEGER NOT NULL DEFAULT 1,
+    max_amount              REAL    NOT NULL DEFAULT 50000.00,
+    allowed_without_po_max  REAL    NOT NULL DEFAULT 0.0,
+    currency                TEXT    NOT NULL DEFAULT 'EUR',
+    approval_required_above REAL    NOT NULL DEFAULT 0.0,
+    payment_terms_days      INTEGER NOT NULL DEFAULT 30,
+    notes                   TEXT    NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS purchase_orders (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     po_number    TEXT NOT NULL UNIQUE,
@@ -137,6 +149,59 @@ _SEED_SUPPLIERS = [
     },
 ]
 
+_SEED_SUPPLIER_POLICIES = [
+    {
+        "supplier_id": 1,
+        "requires_po": 1,
+        "max_amount": 50000.00,
+        "allowed_without_po_max": 0.0,
+        "currency": "EUR",
+        "approval_required_above": 30000.00,
+        "payment_terms_days": 30,
+        "notes": "IT hardware/software vendor. All invoices above EUR 30,000 require Finance Director approval.",
+    },
+    {
+        "supplier_id": 2,
+        "requires_po": 1,
+        "max_amount": 10000.00,
+        "allowed_without_po_max": 0.0,
+        "currency": "EUR",
+        "approval_required_above": 8000.00,
+        "payment_terms_days": 45,
+        "notes": "Office supplies vendor. Strict PO requirement. Maximum invoice cap EUR 10,000. Net 45 payment terms.",
+    },
+    {
+        "supplier_id": 3,
+        "requires_po": 0,
+        "max_amount": 100000.00,
+        "allowed_without_po_max": 5000.00,
+        "currency": "EUR",
+        "approval_required_above": 50000.00,
+        "payment_terms_days": 60,
+        "notes": "Logistics partner. PO not required for invoices up to EUR 5,000 (spot services). Above EUR 50,000 needs VP Operations sign-off. Net 60.",
+    },
+    {
+        "supplier_id": 4,
+        "requires_po": 1,
+        "max_amount": 25000.00,
+        "allowed_without_po_max": 0.0,
+        "currency": "EUR",
+        "approval_required_above": 20000.00,
+        "payment_terms_days": 30,
+        "notes": "Eco-packaging supplier. ESG-preferred vendor. PO mandatory. Invoices above EUR 20,000 require Procurement Manager approval.",
+    },
+    {
+        "supplier_id": 5,
+        "requires_po": 1,
+        "max_amount": 75000.00,
+        "allowed_without_po_max": 0.0,
+        "currency": "EUR",
+        "approval_required_above": 40000.00,
+        "payment_terms_days": 90,
+        "notes": "Metal fabrication. Long-term contract supplier. Net 90 payment terms. Capital items above EUR 40,000 require CAPEX approval committee sign-off.",
+    },
+]
+
 _SEED_PURCHASE_ORDERS = [
     {"po_number": "PO-2025-001", "supplier_id": 1, "status": "open", "total_amount": 15000.00, "created_date": "2025-01-15", "description": "IT Equipment Q1"},
     {"po_number": "PO-2025-002", "supplier_id": 2, "status": "open", "total_amount": 8500.00, "created_date": "2025-02-01", "description": "Office supplies"},
@@ -169,6 +234,15 @@ def init_database(db_path: Path | str | None = None) -> None:
                     "INSERT INTO purchase_orders (po_number, supplier_id, status, total_amount, created_date, description) "
                     "VALUES (:po_number, :supplier_id, :status, :total_amount, :created_date, :description)",
                     po,
+                )
+            for pol in _SEED_SUPPLIER_POLICIES:
+                conn.execute(
+                    "INSERT INTO supplier_policies "
+                    "(supplier_id, requires_po, max_amount, allowed_without_po_max, currency, "
+                    " approval_required_above, payment_terms_days, notes) "
+                    "VALUES (:supplier_id, :requires_po, :max_amount, :allowed_without_po_max, "
+                    " :currency, :approval_required_above, :payment_terms_days, :notes)",
+                    pol,
                 )
 
 
@@ -247,3 +321,13 @@ def create_invoice(
             ),
         )
     return erp_invoice_id
+
+
+def find_supplier_policy(supplier_id: int, db_path=None) -> Optional[dict]:
+    """Look up a supplier policy by the supplier's ID."""
+    with get_db(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM supplier_policies WHERE supplier_id = ?",
+            (supplier_id,),
+        ).fetchone()
+        return dict(row) if row else None

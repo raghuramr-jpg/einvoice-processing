@@ -11,7 +11,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, Request
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,6 +56,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Serve uploaded files
+app.mount("/api/invoices/static", StaticFiles(directory=UPLOAD_DIR), name="static_invoices")
+
 
 # ---------------------------------------------------------------------------
 # Dependencies
@@ -71,6 +75,7 @@ async def get_db():
 
 @app.post("/api/invoices/upload", response_model=InvoiceResponse)
 async def upload_invoice(
+    request: Request,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
@@ -198,12 +203,20 @@ async def upload_invoice(
         db.add(notification)
         await db.commit()
 
-    return invoice.to_dict()
+    # Generate image URL
+    base_url = str(request.base_url).rstrip("/")
+    image_url = f"{base_url}/api/invoices/static/{invoice.filename}"
+    
+    invoice_dict = invoice.to_dict()
+    invoice_dict["image_url"] = image_url
+    
+    return invoice_dict
 
 
 @app.get("/api/invoices/{invoice_id}", response_model=InvoiceResponse)
 async def get_invoice(
     invoice_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """Retrieve the processing status and details for a specific invoice."""
@@ -211,11 +224,15 @@ async def get_invoice(
     invoice = result.scalar_one_or_none()
     if not invoice:
         raise HTTPException(status_code=404, detail=f"Invoice {invoice_id} not found")
-    return invoice.to_dict()
+    invoice_dict = invoice.to_dict()
+    base_url = str(request.base_url).rstrip("/")
+    invoice_dict["image_url"] = f"{base_url}/api/invoices/static/{invoice.filename}"
+    return invoice_dict
 
 
 @app.get("/api/invoices", response_model=InvoiceListResponse)
 async def list_invoices(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     skip: int = 0,
     limit: int = 50,
@@ -229,8 +246,15 @@ async def list_invoices(
     count_result = await db.execute(select(Invoice))
     total = len(count_result.scalars().all())
 
+    base_url = str(request.base_url).rstrip("/")
+    invoice_dicts = []
+    for inv in invoices:
+        d = inv.to_dict()
+        d["image_url"] = f"{base_url}/api/invoices/static/{inv.filename}"
+        invoice_dicts.append(d)
+
     return {
-        "invoices": [inv.to_dict() for inv in invoices],
+        "invoices": invoice_dicts,
         "total": total,
     }
 

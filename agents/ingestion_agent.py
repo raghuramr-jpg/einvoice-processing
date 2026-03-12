@@ -12,6 +12,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langchain_chroma import Chroma
 from langchain_community.embeddings import OllamaEmbeddings
+from langgraph.prebuilt import create_react_agent
+from pydantic import BaseModel, Field
 
 from .state import InvoiceProcessingState
 
@@ -25,14 +27,17 @@ def _get_llm() -> ChatOpenAI:
     provider = os.getenv("LLM_PROVIDER", "ollama").lower()
     
     if provider == "ollama":
+        base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+        logger.info("Using Ollama LLM at: %s", base_url)
         # Use LangChain's ChatOpenAI but point it to Ollama's local OpenAI-compatible endpoint
         return ChatOpenAI(
             model=os.getenv("LLM_MODEL", "llama3.1"),
-            base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
+            base_url=base_url,
             api_key="ollama",  # API key is required by the client but ignored by Ollama
             temperature=0,
         )
     else:
+        logger.info("Using OpenAI LLM")
         # Standard OpenAI client
         return ChatOpenAI(
             model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
@@ -117,6 +122,32 @@ def _ocr_image(path: Path) -> str:
 # LLM Extraction prompt
 # ---------------------------------------------------------------------------
 
+class LineItem(BaseModel):
+    description: str | None = Field(description="Description of the item", default=None)
+    quantity: float | None = Field(description="Quantity of the item", default=None)
+    unit_price: float | None = Field(description="Unit price of the item", default=None)
+    total: float | None = Field(description="Total price for the line item", default=None)
+
+class InvoiceExtractionSchema(BaseModel):
+    supplier_name: str | None = Field(description="Name of the supplier", default=None)
+    vat_number: str | None = Field(description="TVA (VAT) number with FR prefix e.g. FR82123456789", default=None)
+    siret: str | None = Field(description="SIRET number (14 digits)", default=None)
+    iban: str | None = Field(description="IBAN for the supplier account", default=None)
+    bic: str | None = Field(description="BIC for the supplier account", default=None)
+    po_number: str | None = Field(description="PO / Bon de commande reference e.g. PO-2025-001", default=None)
+    invoice_number: str | None = Field(description="Invoice number", default=None)
+    invoice_date: str | None = Field(description="Invoice date in YYYY-MM-DD format", default=None)
+    line_items: list[LineItem] = Field(description="List of line items in the invoice", default_factory=list)
+    total_ht: float | None = Field(description="Total hors taxes (HT)", default=None)
+    tva_rate: float | None = Field(description="TVA percentage e.g. 20.0 for 20%", default=None)
+    tva_amount: float | None = Field(description="TVA amount", default=None)
+    total_ttc: float | None = Field(description="Total toutes taxes comprises (TTC)", default=None)
+    currency: str | None = Field(description="Currency e.g. EUR", default="EUR")
+    confidence_score: float = Field(
+        description="Confidence score from 0.0 to 1.0. Start at 1.0. Subtract 0.20 for any major missing fields (e.g. SIRET, TVA, PO Number). Subtract 0.20 if math does not make sense. Subtract 0.10 for minor missing fields. If not an invoice, < 0.5",
+        default=0.5
+    )
+
 _EXTRACTION_SYSTEM_PROMPT = """You are an expert Accounts Payable invoice data extraction agent.
 You receive raw OCR text from a French supplier invoice and must extract structured data.
 
@@ -127,35 +158,12 @@ IMPORTANT: This is a French business document. Look for:
 - PO / Bon de commande references
 - Amounts: HT (hors taxes), TVA, TTC (toutes taxes comprises)
 
-Return a JSON object with EXACTLY these fields (use null if not found):
-{
-    "supplier_name": "string",
-    "vat_number": "string (e.g. FR82123456789)",
-    "siret": "string (14 digits)",
-    "iban": "string",
-    "bic": "string",
-    "po_number": "string (e.g. PO-2025-001)",
-    "invoice_number": "string",
-    "invoice_date": "YYYY-MM-DD",
-    "line_items": [
-        {"description": "string", "quantity": number, "unit_price": number, "total": number}
-    ],
-    "total_ht": number,
-    "tva_rate": number (e.g. 20.0 for 20%),
-    "tva_amount": number,
-    "total_ttc": number,
-    "currency": "EUR",
-    "confidence_score": number (0.0 to 1.0, representing your confidence in this extraction)
-}
-
 RULES FOR CONFIDENCE SCORE:
 - Start at 1.0.
 - Subtract 0.20 for ANY major missing fields (e.g. SIRET, TVA, PO Number).
 - Subtract 0.20 if the math doesn't make sense (e.g., total_ht + tva_amount != total_ttc).
 - Subtract 0.10 for minor missing fields (e.g., IBAN, line items not perfectly matching total).
-- If the document does not look like an invoice at all, or most fields are null, score should be less than 0.5.
-
-Return ONLY the JSON object, no markdown fences or additional text."""
+- If the document does not look like an invoice at all, or most fields are null, score should be less than 0.5."""
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +191,15 @@ def ingestion_node(state: InvoiceProcessingState) -> dict[str, Any]:
         # Step 2: Retrieve candidate suppliers from Vector DB
         logger.info("Retrieving candidate suppliers from Vector DB")
         try:
-            embeddings = OllamaEmbeddings(model="nomic-embed-text")
+            base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+            # Strip /v1 or /v1/ for OllamaEmbeddings which expects the base Ollama URL
+            embeddings_url = base_url.replace("/v1/", "").replace("/v1", "")
+            logger.info("Using Ollama Embeddings at: %s", embeddings_url)
+            
+            embeddings = OllamaEmbeddings(
+                model="nomic-embed-text",
+                base_url=embeddings_url
+            )
             persist_dir = str(Path(__file__).parent.parent / "chroma_db")
             vector_store = Chroma(
                 collection_name="erp_suppliers",
@@ -199,7 +215,6 @@ def ingestion_node(state: InvoiceProcessingState) -> dict[str, Any]:
             logger.warning(f"Failed to retrieve candidate suppliers from RAG: {e}")
             candidate_suppliers = []
 
-        # Step 3: LLM extraction
         llm = _get_llm()
         
         candidates_json = json.dumps(candidate_suppliers, indent=2)
@@ -211,22 +226,26 @@ CANDIDATE SUPPLIERS FROM ERP:
 
 If the vendor in the OCR text appears to be one of these Candidate Suppliers (even if spelled differently, abbreviated, or missing details), you MUST prioritize extracting the exact Name, vat_number, and siret from the Candidate Supplier record rather than guessing from the OCR text.
 """
-        messages = [
-            SystemMessage(content=dynamic_system_prompt),
-            HumanMessage(content=f"Extract invoice data from the following OCR text:\n\n{raw_text}"),
-        ]
-        response = llm.invoke(messages)
-        content = response.content.strip()
-
-        # Clean up potential markdown fences
-        if content.startswith("```"):
-            content = content.split("\n", 1)[1]  # Remove first line
-        if content.endswith("```"):
-            content = content.rsplit("\n", 1)[0]  # Remove last line
-        if content.startswith("json"):
-            content = content[4:].strip()
-
-        extracted = json.loads(content)
+        # Create the LangGraph Agent with system instructions and strict schema output
+        agent = create_react_agent(
+            model=llm,
+            tools=[],
+            state_modifier=dynamic_system_prompt,
+            response_format=InvoiceExtractionSchema,
+        )
+        
+        input_state = {
+            "messages": [HumanMessage(content=f"Extract invoice data from the following OCR text:\n\n{raw_text}")]
+        }
+        
+        result = agent.invoke(input_state)
+        
+        # The result state contains "structured_response" with our parsed Pydantic object
+        extracted_obj = result.get("structured_response")
+        if not extracted_obj:
+            raise ValueError("Agent failed to return a structured response.")
+            
+        extracted = extracted_obj.model_dump()
         extracted["raw_ocr_text"] = raw_text
         
         confidence = float(extracted.get("confidence_score", 0.5))
@@ -242,9 +261,8 @@ If the vendor in the OCR text appears to be one of these Candidate Suppliers (ev
             "errors": errors,
         }
 
-    except json.JSONDecodeError as e:
-        errors.append(f"Failed to parse LLM extraction output: {e}")
-        return {"status": "error", "errors": errors}
     except Exception as e:
-        errors.append(f"Ingestion failed: {e}")
+        msg = f"Ingestion failed: {e}"
+        logger.error(msg, exc_info=True)
+        errors.append(msg)
         return {"status": "error", "errors": errors}

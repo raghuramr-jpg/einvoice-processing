@@ -9,6 +9,12 @@ import subprocess
 import sys
 from typing import Any
 
+from langchain_core.messages import HumanMessage
+from langchain_core.tools import tool
+from langgraph.prebuilt import create_react_agent
+from pydantic import BaseModel, Field
+
+from .ingestion_agent import _get_llm
 from .state import InvoiceProcessingState, ValidationDetail
 
 logger = logging.getLogger(__name__)
@@ -48,58 +54,61 @@ def _get_client() -> McpErpClient:
     return McpErpClient()
 
 
+class ValidationDetailModel(BaseModel):
+    field: str = Field(description="The field being validated (e.g. 'supplier', 'vat_number', 'siret', 'supplier_bank', 'purchase_order', 'supplier_policy')")
+    valid: bool = Field(description="True if validation passed, False otherwise")
+    message: str = Field(description="Validation result message")
+    details: dict[str, Any] = Field(description="Additional details returned by the tool", default_factory=dict)
+
+class ValidationOutputSchema(BaseModel):
+    validation_results: list[ValidationDetailModel] = Field(description="List of all validation checks performed")
+    all_validations_passed: bool = Field(description="True if ALL validations passed, False otherwise")
+
 # ---------------------------------------------------------------------------
-# Validation checks
+# LangChain Tools wrapping MCP Tools
 # ---------------------------------------------------------------------------
 
-def _validate_vat(client: McpErpClient, vat_number: str) -> ValidationDetail:
-    result = client.call_tool("validate_vat", {"vat_number": vat_number})
-    return ValidationDetail(
-        field="vat_number",
-        valid=result["valid"],
-        message=result["message"],
-        details=result,
-    )
+@tool
+def validate_vat(vat_number: str) -> str:
+    """Validate a VAT number against the ERP supplier master data.
+    Args:
+        vat_number: The EU VAT number (e.g. FR82123456789)
+    """
+    return json.dumps(_get_client().call_tool("validate_vat", {"vat_number": vat_number}))
 
+@tool
+def validate_siret(siret: str) -> str:
+    """Validate a French SIRET number against the ERP supplier master data.
+    Args:
+        siret: 14-digit French SIRET number
+    """
+    return json.dumps(_get_client().call_tool("validate_siret", {"siret": siret}))
 
-def _validate_siret(client: McpErpClient, siret: str) -> ValidationDetail:
-    result = client.call_tool("validate_siret", {"siret": siret})
-    return ValidationDetail(
-        field="siret",
-        valid=result["valid"],
-        message=result["message"],
-        details=result,
-    )
+@tool
+def validate_supplier_bank(iban: str, bic: str) -> str:
+    """Validate supplier bank details (IBAN and BIC) against ERP master data."""
+    return json.dumps(_get_client().call_tool("validate_supplier_bank", {"iban": iban, "bic": bic}))
 
+@tool
+def validate_purchase_order(po_number: str) -> str:
+    """Validate a Purchase Order number exists in the ERP and is in a receivable state."""
+    return json.dumps(_get_client().call_tool("validate_purchase_order", {"po_number": po_number}))
 
-def _validate_bank(client: McpErpClient, iban: str, bic: str) -> ValidationDetail:
-    result = client.call_tool("validate_supplier_bank", {"iban": iban, "bic": bic})
-    return ValidationDetail(
-        field="supplier_bank",
-        valid=result["valid"],
-        message=result["message"],
-        details=result,
-    )
+@tool
+def get_supplier_details(supplier_name: str) -> str:
+    """Look up a supplier by name in the ERP master data."""
+    return json.dumps(_get_client().call_tool("get_supplier_details", {"supplier_name": supplier_name}))
 
+@tool
+def validate_supplier_policy(vat_number: str, po_number: str = "", total_amount: float = 0.0, currency: str = "EUR") -> str:
+    """Validate invoice details against the supplier's policies in the ERP."""
+    return json.dumps(_get_client().call_tool("validate_supplier_policy", {
+        "vat_number": vat_number,
+        "po_number": po_number,
+        "total_amount": total_amount,
+        "currency": currency,
+    }))
 
-def _validate_po(client: McpErpClient, po_number: str) -> ValidationDetail:
-    result = client.call_tool("validate_purchase_order", {"po_number": po_number})
-    return ValidationDetail(
-        field="purchase_order",
-        valid=result["valid"],
-        message=result["message"],
-        details=result,
-    )
-
-
-def _validate_supplier(client: McpErpClient, supplier_name: str) -> ValidationDetail:
-    result = client.call_tool("get_supplier_details", {"supplier_name": supplier_name})
-    return ValidationDetail(
-        field="supplier",
-        valid=result["found"],
-        message=result.get("message", f"Supplier '{supplier_name}' found in ERP") if result["found"] else result.get("message", f"Supplier '{supplier_name}' not found"),
-        details=result,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -118,77 +127,69 @@ def validation_node(state: InvoiceProcessingState) -> dict[str, Any]:
         errors.append("No extracted_data available for validation")
         return {"status": "error", "errors": errors}
 
-    client = _get_client()
-    validations: list[ValidationDetail] = []
+    tools = [
+        validate_vat,
+        validate_siret,
+        validate_supplier_bank,
+        validate_purchase_order,
+        get_supplier_details,
+        validate_supplier_policy
+    ]
 
-    # 1. Supplier name lookup
-    supplier_name = extracted.get("supplier_name")
-    if supplier_name:
-        logger.info("Validating supplier: %s", supplier_name)
-        validations.append(_validate_supplier(client, supplier_name))
-    else:
-        validations.append(ValidationDetail(
-            field="supplier", valid=False,
-            message="Supplier name not extracted from invoice", details={},
-        ))
+    llm = _get_llm()
 
-    # 2. VAT number
-    vat = extracted.get("vat_number")
-    if vat:
-        logger.info("Validating VAT: %s", vat)
-        validations.append(_validate_vat(client, vat))
-    else:
-        validations.append(ValidationDetail(
-            field="vat_number", valid=False,
-            message="VAT number not extracted from invoice", details={},
-        ))
+    system_prompt = """You are an expert ERP Validation Agent.
+You receive extracted data from an invoice. Your job is to validate this data using the provided ERP tools.
+Always perform the following checks if the data is available:
+1. Valid supplier name or VAT/SIRET
+2. Valid bank details (IBAN/BIC)
+3. Valid Purchase Order (if present)
+4. Supplier Policy (amount limits, PO requirements, etc) - ALWAYS pass the correct invoice currency, and ALWAYS check policy if VAT and Amount are known.
 
-    # 3. SIRET
-    siret = extracted.get("siret")
-    if siret:
-        logger.info("Validating SIRET: %s", siret)
-        validations.append(_validate_siret(client, siret))
-    else:
-        validations.append(ValidationDetail(
-            field="siret", valid=False,
-            message="SIRET not extracted from invoice", details={},
-        ))
+Take your time to call all necessary tools. 
+Once you have gathered all the tool responses, compile them into a structured ValidationOutputSchema.
+Ensure the 'details' field contains the parsed JSON from the tool if available as context.
+"""
 
-    # 4. Bank details
-    iban = extracted.get("iban")
-    bic = extracted.get("bic")
-    if iban and bic:
-        logger.info("Validating bank: IBAN=%s, BIC=%s", iban, bic)
-        validations.append(_validate_bank(client, iban, bic))
-    else:
-        validations.append(ValidationDetail(
-            field="supplier_bank", valid=False,
-            message="IBAN/BIC not fully extracted from invoice", details={},
-        ))
-
-    # 5. Purchase Order
-    po = extracted.get("po_number")
-    if po:
-        logger.info("Validating PO: %s", po)
-        validations.append(_validate_po(client, po))
-    else:
-        validations.append(ValidationDetail(
-            field="purchase_order", valid=False,
-            message="PO number not extracted from invoice", details={},
-        ))
-
-    all_passed = all(v["valid"] for v in validations)
-
-    logger.info(
-        "Validation complete: %d/%d passed (all_passed=%s)",
-        sum(1 for v in validations if v["valid"]),
-        len(validations),
-        all_passed,
+    agent = create_react_agent(
+        model=llm,
+        tools=tools,
+        prompt=system_prompt,
+        response_format=ValidationOutputSchema,
     )
-
-    return {
-        "validation_results": validations,
-        "all_validations_passed": all_passed,
-        "status": "validated",
-        "errors": errors,
+    
+    extracted_json = json.dumps(extracted, indent=2)
+    input_state = {
+        "messages": [HumanMessage(content=f"Please validate this extracted invoice data:\n\n{extracted_json}")]
     }
+    
+    logger.info("Invoking Validation Agent with extracted data")
+    
+    try:
+        result = agent.invoke(input_state)
+        structured_response = result.get("structured_response")
+        
+        if not structured_response:
+            raise ValueError("Validation agent did not return a structured response.")
+            
+        output_dict = structured_response.model_dump()
+        all_passed = output_dict.get("all_validations_passed", False)
+        
+        logger.info(
+            "Validation complete: %d checks performed (all_passed=%s)",
+            len(output_dict.get("validation_results", [])),
+            all_passed,
+        )
+        
+        return {
+            "validation_results": output_dict["validation_results"],
+            "all_validations_passed": all_passed,
+            "status": "validated",
+            "errors": errors,
+        }
+        
+    except Exception as e:
+        msg = f"Validation Agent execution failed: {e}"
+        logger.error(msg, exc_info=True)
+        errors.append(msg)
+        return {"status": "error", "errors": errors}

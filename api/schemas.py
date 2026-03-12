@@ -58,6 +58,7 @@ class InvoiceResponse(BaseModel):
     processing_result: Optional[ProcessingResultResponse] = None
     errors: list[str] = Field(default_factory=list)
     confidence_score: Optional[float] = None
+    image_url: Optional[str] = None
     created_at: datetime
 
 
