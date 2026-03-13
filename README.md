@@ -110,11 +110,43 @@ flowchart LR
 | Component | Technology | Description |
 |-----------|-----------|-------------|
 | **API Gateway** | FastAPI | REST API for invoice upload and status |
-| **Ingestion Agent** | LangGraph `create_react_agent` + ChromaDB | OCR → RAG fuzzy matching → structured field extraction with `InvoiceExtractionSchema` |
+| **Ingestion Agent** | **Qwen2.5-VL** / Qwen2.5 + ChromaDB | Multimodal Vision extraction → RAG fuzzy matching → structured extraction with robust text fallback |
 | **Validation Agent** | LangGraph `create_react_agent` + LangChain Tools | Reactive AI agent that dynamically calls 6 MCP-backed LangChain tools; returns structured `ValidationOutputSchema` |
 | **Processing Agent** | LangGraph + MCP Client | Posts validated invoice to ERP via `create_erp_invoice` |
 | **MCP ERP Server** | FastMCP | Exposes 7 ERP tools via Model Context Protocol (called in-process for performance) |
 | **RAG Store** | ChromaDB + OllamaEmbeddings (`nomic-embed-text`) | Supplier embeddings with embedded policy context for fuzzy supplier matching |
+
+---
+
+## Ingestion Flow (Qwen2.5-VL + Fallback)
+
+The Ingestion Agent uses a dual-path strategy for maximum accuracy and robustness.
+
+```mermaid
+graph TD
+    A[Input Invoice] --> B{Pre-processing}
+    B --> C[Convert to Images]
+    B --> D[Extract OCR Text]
+    
+    C --> E[RAG Context]
+    D --> E
+    
+    E --> F{Vision Model Found?}
+    
+    F -- Yes --> G[Qwen2.5-VL Vision Extraction]
+    F -- No / 404 --> H[Text-Only LLM Fallback]
+    
+    G --> I{Successful?}
+    I -- Yes --> K[Return Data]
+    I -- No --> H
+    
+    H --> J[Qwen2.5 Text Extraction]
+    J --> K
+```
+
+1. **Multimodal Analysis**: Attempts to use Vision (Qwen2.5-VL) to understand visual layout and semantic labels.
+2. **Robust Fallback**: Automatically falls back to OCR + Text extraction (`qwen2.5`) if the vision model is missing or fails.
+3. **Structured Output**: Uses `with_structured_output` for reliable local model interaction.
 
 ---
 
@@ -236,8 +268,9 @@ Set `LLM_PROVIDER` in `.env`:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LLM_PROVIDER` | `ollama` | `ollama` or `openai` |
-| `LLM_MODEL` | `llama3.1` (Ollama) / `gpt-4o-mini` (OpenAI) | Model name |
-| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama OpenAI-compatible endpoint |
+| `LLM_MODEL` | `qwen2.5-vl` | Primary Vision-Language Model |
+| `LLM_MODEL_TEXT` | `qwen2.5` | Fallback text-only model |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API endpoint |
 | `OPENAI_API_KEY` | — | Required if using OpenAI |
 
 ### Setup
