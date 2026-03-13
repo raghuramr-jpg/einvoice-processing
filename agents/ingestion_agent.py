@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -10,6 +11,7 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 from langchain_chroma import Chroma
 from langchain_community.embeddings import OllamaEmbeddings
 from langgraph.prebuilt import create_react_agent
@@ -27,13 +29,14 @@ def _get_llm() -> ChatOpenAI:
     provider = os.getenv("LLM_PROVIDER", "ollama").lower()
     
     if provider == "ollama":
-        base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-        logger.info("Using Ollama LLM at: %s", base_url)
-        # Use LangChain's ChatOpenAI but point it to Ollama's local OpenAI-compatible endpoint
-        return ChatOpenAI(
-            model=os.getenv("LLM_MODEL", "llama3.1"),
+        base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        # Strip /v1 if present for ChatOllama
+        base_url = base_url.replace("/v1/", "").replace("/v1", "")
+        model_name = os.getenv("LLM_MODEL", "qwen2.5-vl")
+        logger.info("Using Ollama LLM (%s) at: %s", model_name, base_url)
+        return ChatOllama(
+            model=model_name,
             base_url=base_url,
-            api_key="ollama",  # API key is required by the client but ignored by Ollama
             temperature=0,
         )
     else:
@@ -46,76 +49,49 @@ def _get_llm() -> ChatOpenAI:
 
 
 # ---------------------------------------------------------------------------
-# OCR — extract raw text from PDF or image
+# Image Preprocessing — convert PDF/Image to base64
 # ---------------------------------------------------------------------------
 
-def _ocr_extract(file_path: str) -> str:
-    """Extract text from a PDF or image file using available OCR tools."""
+def _file_to_base64_images(file_path: str) -> list[str]:
+    """Convert a PDF or image file into a list of base64-encoded strings (one per page)."""
     path = Path(file_path)
     suffix = path.suffix.lower()
+    images_base64 = []
 
     if suffix == ".pdf":
-        return _ocr_pdf(path)
+        try:
+            import fitz  # PyMuPDF
+            doc = fitz.open(str(path))
+            for page in doc:
+                pix = page.get_pixmap()
+                img_data = pix.tobytes("png")
+                images_base64.append(base64.b64encode(img_data).decode("utf-8"))
+        except Exception as e:
+            logger.warning(f"Failed to convert PDF to images: {e}")
+            raise
     elif suffix in (".png", ".jpg", ".jpeg", ".tiff", ".bmp"):
-        return _ocr_image(path)
-    elif suffix == ".txt":
-        # Plain text — read directly (useful for testing)
-        return path.read_text(encoding="utf-8")
+        try:
+            with open(path, "rb") as f:
+                img_data = f.read()
+                images_base64.append(base64.b64encode(img_data).decode("utf-8"))
+        except Exception as e:
+            logger.warning(f"Failed to read image file: {e}")
+            raise
     else:
         raise ValueError(f"Unsupported file type: {suffix}")
 
+    return images_base64
 
-def _ocr_pdf(path: Path) -> str:
-    """Extract text from PDF, trying PyMuPDF first, then Tesseract OCR."""
-    # 1. Try PyMuPDF first (fast, native text extraction, no system binaries needed)
+
+def _ocr_extract_text_fallback(file_path: str) -> str:
+    """Fallback text extraction for RAG indexing."""
+    path = Path(file_path)
     try:
-        import fitz  # PyMuPDF
+        import fitz
         doc = fitz.open(str(path))
-        texts = [page.get_text() for page in doc]
-        full_text = "\n\n".join(texts).strip()
-        
-        # If the PDF contains a reasonable amount of text, return it directly.
-        # This prevents breaking on text-based PDFs when Poppler/Tesseract are missing.
-        if len(full_text) > 50:
-            return full_text
-    except Exception as e:
-        logger.warning(f"PyMuPDF fallback failed: {e}")
-
-    # 2. If PDF was an image or PyMuPDF failed, fall back to OCR
-    try:
-        from pdf2image import convert_from_path
-        import pytesseract
-
-        images = convert_from_path(str(path))
-        texts = []
-        for img in images:
-            text = pytesseract.image_to_string(img, lang="fra+eng")
-            texts.append(text)
-        return "\n\n".join(texts)
-    except Exception as e:
-        raise RuntimeError(
-            "OCR extraction failed for image-based PDF. This often happens natively on Windows "
-            "because Poppler (for pdf2image) or Tesseract are not installed or not in PATH.\n"
-            "To fix, either run the project via Docker (where it is pre-installed) or install "
-            f"Poppler and Tesseract on your host system. Error details: {e}"
-        )
-
-
-def _ocr_image(path: Path) -> str:
-    """Extract text from an image using pytesseract."""
-    try:
-        import pytesseract
-        from PIL import Image
-
-        img = Image.open(str(path))
-        return pytesseract.image_to_string(img, lang="fra+eng")
-    except Exception as e:
-        raise RuntimeError(
-            "OCR extraction failed for Image. This often happens natively on Windows "
-            "because Tesseract executable is not installed or not in PATH.\n"
-            "To fix, either run the project via Docker or install Tesseract. "
-            f"Error details: {e}"
-        )
+        return "\n\n".join(page.get_text() for page in doc).strip()
+    except Exception:
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -148,10 +124,15 @@ class InvoiceExtractionSchema(BaseModel):
         default=0.5
     )
 
-_EXTRACTION_SYSTEM_PROMPT = """You are an expert Accounts Payable invoice data extraction agent.
-You receive raw OCR text from a French supplier invoice and must extract structured data.
+_EXTRACTION_SYSTEM_PROMPT = """You are an expert Accounts Payable invoice data extraction agent using a Vision-Language Model.
+You receive images of a French supplier invoice and must extract structured data.
 
-IMPORTANT: This is a French business document. Look for:
+IMPORTANT: Use SEMANTIC LABEL IDENTIFICATION. This means:
+1. Identify labels based on their MEANING, not just exact text (e.g., "TOTAL TTC", "Net a payer", "Amount Due", "Total" all map to total_ttc).
+2. Distinguish between SUPPLIER (vendor) and CUSTOMER (bill-to) information by analyzing the layout (supplier is usually at the top or header).
+3. Extract information directly from the visual context.
+
+This is a French business document. Look for:
 - TVA (VAT) numbers with FR prefix
 - SIRET numbers (14 digits)
 - IBAN/BIC for French banks
@@ -172,8 +153,6 @@ RULES FOR CONFIDENCE SCORE:
 
 def ingestion_node(state: InvoiceProcessingState) -> dict[str, Any]:
     """LangGraph node: extract structured data from an invoice file.
-
-    Reads state["file_path"], performs OCR, then uses LLM to extract fields.
     """
     file_path = state.get("file_path", "")
     errors: list[str] = list(state.get("errors", []))
@@ -183,18 +162,25 @@ def ingestion_node(state: InvoiceProcessingState) -> dict[str, Any]:
         return {"status": "error", "errors": errors}
 
     try:
-        # Step 1: OCR
-        logger.info("Running OCR on %s", file_path)
-        raw_text = _ocr_extract(file_path)
-        logger.info("OCR extracted %d characters", len(raw_text))
+        # Step 1: Convert file to images for VLM
+        logger.info("Converting %s to images for VLM", file_path)
+        images_base64 = []
+        try:
+            images_base64 = _file_to_base64_images(file_path)
+            logger.info("Converted to %d images", len(images_base64))
+        except Exception as e:
+            logger.warning("Conversion to images failed: %s. Will proceed to text-only fallback.", e)
 
-        # Step 2: Retrieve candidate suppliers from Vector DB
+        # Step 2: Fallback text extraction (needed for RAG anyway)
+        raw_text_fallback = _ocr_extract_text_fallback(file_path)
+        logger.info("Fallback OCR extracted %d characters", len(raw_text_fallback))
+
+        # Step 3: Retrieve candidate suppliers from Vector DB (RAG)
         logger.info("Retrieving candidate suppliers from Vector DB")
+        candidate_suppliers = []
         try:
             base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-            # Strip /v1 or /v1/ for OllamaEmbeddings which expects the base Ollama URL
             embeddings_url = base_url.replace("/v1/", "").replace("/v1", "")
-            logger.info("Using Ollama Embeddings at: %s", embeddings_url)
             
             embeddings = OllamaEmbeddings(
                 model="nomic-embed-text",
@@ -207,46 +193,80 @@ def ingestion_node(state: InvoiceProcessingState) -> dict[str, Any]:
                 persist_directory=persist_dir
             )
             
-            # Use the first 1000 characters (usually containing vendor header) for semantic search
-            query_text = raw_text[:1000]
+            query_text = raw_text_fallback[:1000] if raw_text_fallback else "unknown supplier"
             docs = vector_store.similarity_search(query_text, k=3)
             candidate_suppliers = [doc.metadata for doc in docs]
         except Exception as e:
             logger.warning(f"Failed to retrieve candidate suppliers from RAG: {e}")
-            candidate_suppliers = []
 
         llm = _get_llm()
-        
         candidates_json = json.dumps(candidate_suppliers, indent=2)
         
-        dynamic_system_prompt = _EXTRACTION_SYSTEM_PROMPT + f"""
+        # Base system prompt for both vision and text
+        base_prompt = _EXTRACTION_SYSTEM_PROMPT + f"""
         
 CANDIDATE SUPPLIERS FROM ERP:
 {candidates_json}
 
-If the vendor in the OCR text appears to be one of these Candidate Suppliers (even if spelled differently, abbreviated, or missing details), you MUST prioritize extracting the exact Name, vat_number, and siret from the Candidate Supplier record rather than guessing from the OCR text.
+If the vendor appears to be one of these Candidate Suppliers (even if spelled differently, abbreviated, or missing details), you MUST prioritize extracting the exact Name, vat_number, and siret from the Candidate Supplier record rather than guessing from the document content.
 """
-        # Create the LangGraph Agent with system instructions and strict schema output
-        agent = create_react_agent(
-            model=llm,
-            tools=[],
-            state_modifier=dynamic_system_prompt,
-            response_format=InvoiceExtractionSchema,
-        )
         
-        input_state = {
-            "messages": [HumanMessage(content=f"Extract invoice data from the following OCR text:\n\n{raw_text}")]
-        }
+        extracted_obj = None
         
-        result = agent.invoke(input_state)
-        
-        # The result state contains "structured_response" with our parsed Pydantic object
-        extracted_obj = result.get("structured_response")
+        # Try Vision-only first if we have images and the model is supposed to be vision
+        model_name = os.getenv("LLM_MODEL", "qwen2.5-vl")
+        if images_base64 and ("vl" in model_name or "vision" in model_name):
+            try:
+                logger.info("Attempting vision-based extraction with %s", model_name)
+                # Prepare multimodal message
+                content = [{"type": "text", "text": "Extract all relevant fields from this invoice image(s). Use semantic label identification to find the correct data even if labels vary across formats."}]
+                for b64_img in images_base64:
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{b64_img}"}
+                    })
+
+                structured_llm = llm.with_structured_output(InvoiceExtractionSchema)
+                extracted_obj = structured_llm.invoke([
+                    SystemMessage(content=base_prompt),
+                    HumanMessage(content=content)
+                ])
+                
+                if extracted_obj and extracted_obj.supplier_name:
+                    logger.info("Vision-based extraction succeeded for %s", extracted_obj.supplier_name)
+                else:
+                    logger.warning("Vision-based extraction returned empty/partial result. Trying text-only fallback.")
+                    extracted_obj = None
+            except Exception as e:
+                logger.warning("Vision-based extraction failed: %s. Falling back to text-only.", e)
+
+        # Fallback to Text-only extraction
         if not extracted_obj:
-            raise ValueError("Agent failed to return a structured response.")
+            text_model_name = os.getenv("LLM_MODEL_TEXT", "qwen2.5")
+            logger.info("Attempting text-based extraction with %s", text_model_name)
+            
+            # Switch to text-only LLM if specified or use the current one
+            if text_model_name != model_name:
+                base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+                base_url = base_url.replace("/v1/", "").replace("/v1", "")
+                llm = ChatOllama(
+                    model=text_model_name,
+                    base_url=base_url,
+                    temperature=0,
+                )
+
+            structured_llm = llm.with_structured_output(InvoiceExtractionSchema)
+            prompt_text = f"Extract invoice data from the following OCR text using semantic label identification:\n\n{raw_text_fallback}"
+            extracted_obj = structured_llm.invoke([
+                SystemMessage(content=base_prompt),
+                HumanMessage(content=prompt_text)
+            ])
+
+        if not extracted_obj:
+            raise ValueError("LLM failed to return a structured response after all attempts.")
             
         extracted = extracted_obj.model_dump()
-        extracted["raw_ocr_text"] = raw_text
+        extracted["raw_ocr_text"] = raw_text_fallback
         
         confidence = float(extracted.get("confidence_score", 0.5))
 

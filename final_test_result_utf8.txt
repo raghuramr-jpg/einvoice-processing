@@ -1,0 +1,43 @@
+﻿.\.venv\Scripts\python.exe : 
+INFO:__main__:Testing Qwen2.5-VL ingestion with: c
+:\installations\aiprojects\ap-invoice-agent\upload
+s\sample_invoice.pdf
+At line:1 char:22
++ ... ONPATH="."; .\.venv\Scripts\python.exe 
+scripts/test_qwen_ingestion.py ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (INFO 
+   :__main__:T...ple_invoice.pdf:String) [], Rem  
+  oteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+INFO:agents.graph:Starting invoice processing 
+for: c:\installations\aiprojects\ap-invoice-agent\
+uploads\sample_invoice.pdf
+INFO:agents.ingestion_agent:Converting c:\installa
+tions\aiprojects\ap-invoice-agent\uploads\sample_i
+nvoice.pdf to images for VLM
+INFO:agents.ingestion_agent:Converted to 1 images
+INFO:agents.ingestion_agent:Retrieving candidate 
+suppliers from Vector DB
+C:\installations\aiprojects\ap-invoice-agent\agent
+s\ingestion_agent.py:186: 
+LangChainDeprecationWarning: The class 
+`OllamaEmbeddings` was deprecated in LangChain 
+0.3.1 and will be removed in 1.0.0. An updated 
+version of the class exists in the 
+`langchain-ollama package and should be used 
+instead. To use it run `pip install -U 
+`langchain-ollama` and import as `from 
+`langchain_ollama import OllamaEmbeddings``.
+  embeddings = OllamaEmbeddings(
+INFO:chromadb.telemetry.product.posthog:Anonymized
+ telemetry enabled. See                     
+https://docs.trychroma.com/telemetry for more 
+information.
+INFO:agents.ingestion_agent:Using Ollama LLM 
+(qwen2.5-vl) at: http://localhost:11434
+INFO:httpx:HTTP Request: POST 
+http://localhost:11434/api/chat "HTTP/1.1 404 Not 
+Found"

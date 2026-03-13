@@ -1,0 +1,268 @@
+﻿.\.venv\Scripts\python.exe : INFO:__main__:Testing 
+Qwen2.5-VL ingestion with: c:\installations\aiproject
+s\ap-invoice-agent\uploads\sample_invoice.pdf
+At line:1 char:22
++ ... ONPATH="."; .\.venv\Scripts\python.exe 
+scripts/test_qwen_ingestion.py ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (INFO:__ 
+   main__:T...ple_invoice.pdf:String) [], RemoteExc  
+  eption
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+INFO:agents.graph:Starting invoice processing for: c:
+\installations\aiprojects\ap-invoice-agent\uploads\sa
+mple_invoice.pdf
+INFO:agents.ingestion_agent:Converting c:\installatio
+ns\aiprojects\ap-invoice-agent\uploads\sample_invoice
+.pdf to images for VLM
+INFO:agents.ingestion_agent:Converted to 1 images
+INFO:agents.ingestion_agent:Retrieving candidate 
+suppliers from Vector DB
+C:\installations\aiprojects\ap-invoice-agent\agents\i
+ngestion_agent.py:185: LangChainDeprecationWarning: 
+The class `OllamaEmbeddings` was deprecated in 
+LangChain 0.3.1 and will be removed in 1.0.0. An 
+updated version of the class exists in the 
+`langchain-ollama package and should be used 
+instead. To use it run `pip install -U 
+`langchain-ollama` and import as `from 
+`langchain_ollama import OllamaEmbeddings``.
+  embeddings = OllamaEmbeddings(
+INFO:chromadb.telemetry.product.posthog:Anonymized 
+telemetry enabled. See                     
+https://docs.trychroma.com/telemetry for more 
+information.
+INFO:agents.ingestion_agent:Using Ollama LLM 
+(qwen2.5-vl) at: http://localhost:11434/v1
+INFO:agents.ingestion_agent:Attempting vision-based 
+extraction with qwen2.5-vl
+WARNING:agents.ingestion_agent:Vision-based 
+extraction failed: create_react_agent() got 
+unexpected keyword arguments: {'state_modifier': 
+'You are an expert Accounts Payable invoice data 
+extraction agent using a Vision-Language Model.\nYou 
+receive images of a French supplier invoice and must 
+extract structured data.\n\nIMPORTANT: Use SEMANTIC 
+LABEL IDENTIFICATION. This means:\n1. Identify 
+labels based on their MEANING, not just exact text 
+(e.g., "TOTAL TTC", "Net a payer", "Amount Due", 
+"Total" all map to total_ttc).\n2. Distinguish 
+between SUPPLIER (vendor) and CUSTOMER (bill-to) 
+information by analyzing the layout (supplier is 
+usually at the top or header).\n3. Extract 
+information directly from the visual 
+context.\n\nThis is a French business document. Look 
+for:\n- TVA (VAT) numbers with FR prefix\n- SIRET 
+numbers (14 digits)\n- IBAN/BIC for French banks\n- 
+PO / Bon de commande references\n- Amounts: HT (hors 
+taxes), TVA, TTC (toutes taxes comprises)\n\nRULES 
+FOR CONFIDENCE SCORE:\n- Start at 1.0.\n- Subtract 
+0.20 for ANY major missing fields (e.g. SIRET, TVA, 
+PO Number).\n- Subtract 0.20 if the math doesn\'t 
+make sense (e.g., total_ht + tva_amount != 
+total_ttc).\n- Subtract 0.10 for minor missing 
+fields (e.g., IBAN, line items not perfectly 
+matching total).\n- If the document does not look 
+like an invoice at all, or most fields are null, 
+score should be less than 0.5.\n        \nCANDIDATE 
+SUPPLIERS FROM ERP:\n[\n  {\n    "iban": 
+"FR7630006000011234567890189",\n    "vat_number": 
+"FR82123456789",\n    "name": "TechnoVision SAS",\n  
+  "id": 1,\n    "siret": "12345678900014"\n  },\n  
+{\n    "id": 3,\n    "siret": "45678901200035",\n    
+"name": "LogiServ Europe SA",\n    "iban": 
+"FR7620041000013456789012345",\n    "vat_number": 
+"FR31456789012"\n  },\n  {\n    "name": "Fournitures 
+Dupont SARL",\n    "iban": 
+"FR7610011000202345678901234",\n    "id": 2,\n    
+"siret": "98765432100028",\n    "vat_number": 
+"FR55987654321"\n  }\n]\n\nIf the vendor appears to 
+be one of these Candidate Suppliers (even if spelled 
+differently, abbreviated, or missing details), you 
+MUST prioritize extracting the exact Name, 
+vat_number, and siret from the Candidate Supplier 
+record rather than guessing from the document 
+content.\n'}. Falling back to text-only.
+INFO:agents.ingestion_agent:Attempting text-based 
+extraction with qwen2.5
+ERROR:agents.ingestion_agent:Ingestion failed: 
+create_react_agent() got unexpected keyword 
+arguments: {'state_modifier': 'You are an expert 
+Accounts Payable invoice data extraction agent using 
+a Vision-Language Model.\nYou receive images of a 
+French supplier invoice and must extract structured 
+data.\n\nIMPORTANT: Use SEMANTIC LABEL 
+IDENTIFICATION. This means:\n1. Identify labels 
+based on their MEANING, not just exact text (e.g., 
+"TOTAL TTC", "Net a payer", "Amount Due", "Total" 
+all map to total_ttc).\n2. Distinguish between 
+SUPPLIER (vendor) and CUSTOMER (bill-to) information 
+by analyzing the layout (supplier is usually at the 
+top or header).\n3. Extract information directly 
+from the visual context.\n\nThis is a French 
+business document. Look for:\n- TVA (VAT) numbers 
+with FR prefix\n- SIRET numbers (14 digits)\n- 
+IBAN/BIC for French banks\n- PO / Bon de commande 
+references\n- Amounts: HT (hors taxes), TVA, TTC 
+(toutes taxes comprises)\n\nRULES FOR CONFIDENCE 
+SCORE:\n- Start at 1.0.\n- Subtract 0.20 for ANY 
+major missing fields (e.g. SIRET, TVA, PO 
+Number).\n- Subtract 0.20 if the math doesn\'t make 
+sense (e.g., total_ht + tva_amount != total_ttc).\n- 
+Subtract 0.10 for minor missing fields (e.g., IBAN, 
+line items not perfectly matching total).\n- If the 
+document does not look like an invoice at all, or 
+most fields are null, score should be less than 
+0.5.\n        \nCANDIDATE SUPPLIERS FROM ERP:\n[\n  
+{\n    "iban": "FR7630006000011234567890189",\n    
+"vat_number": "FR82123456789",\n    "name": 
+"TechnoVision SAS",\n    "id": 1,\n    "siret": 
+"12345678900014"\n  },\n  {\n    "id": 3,\n    
+"siret": "45678901200035",\n    "name": "LogiServ 
+Europe SA",\n    "iban": 
+"FR7620041000013456789012345",\n    "vat_number": 
+"FR31456789012"\n  },\n  {\n    "name": "Fournitures 
+Dupont SARL",\n    "iban": 
+"FR7610011000202345678901234",\n    "id": 2,\n    
+"siret": "98765432100028",\n    "vat_number": 
+"FR55987654321"\n  }\n]\n\nIf the vendor appears to 
+be one of these Candidate Suppliers (even if spelled 
+differently, abbreviated, or missing details), you 
+MUST prioritize extracting the exact Name, 
+vat_number, and siret from the Candidate Supplier 
+record rather than guessing from the document 
+content.\n'}
+Traceback (most recent call last):
+  File "C:\installations\aiprojects\ap-invoice-agent\
+agents\ingestion_agent.py", line 263, in 
+ingestion_node
+    agent = create_react_agent(
+            ^^^^^^^^^^^^^^^^^^^
+  File "C:\installations\aiprojects\ap-invoice-agent\
+.venv\Lib\site-packages\typing_extensions.py", line 
+3004, in wrapper
+    return arg(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "C:\installations\aiprojects\ap-invoice-agent\
+.venv\Lib\site-packages\langgraph\prebuilt\chat_agent
+_executor.py", line 529, in create_react_agent
+    raise TypeError(
+TypeError: create_react_agent() got unexpected 
+keyword arguments: {'state_modifier': 'You are an 
+expert Accounts Payable invoice data extraction 
+agent using a Vision-Language Model.\nYou receive 
+images of a French supplier invoice and must extract 
+structured data.\n\nIMPORTANT: Use SEMANTIC LABEL 
+IDENTIFICATION. This means:\n1. Identify labels 
+based on their MEANING, not just exact text (e.g., 
+"TOTAL TTC", "Net a payer", "Amount Due", "Total" 
+all map to total_ttc).\n2. Distinguish between 
+SUPPLIER (vendor) and CUSTOMER (bill-to) information 
+by analyzing the layout (supplier is usually at the 
+top or header).\n3. Extract information directly 
+from the visual context.\n\nThis is a French 
+business document. Look for:\n- TVA (VAT) numbers 
+with FR prefix\n- SIRET numbers (14 digits)\n- 
+IBAN/BIC for French banks\n- PO / Bon de commande 
+references\n- Amounts: HT (hors taxes), TVA, TTC 
+(toutes taxes comprises)\n\nRULES FOR CONFIDENCE 
+SCORE:\n- Start at 1.0.\n- Subtract 0.20 for ANY 
+major missing fields (e.g. SIRET, TVA, PO 
+Number).\n- Subtract 0.20 if the math doesn\'t make 
+sense (e.g., total_ht + tva_amount != total_ttc).\n- 
+Subtract 0.10 for minor missing fields (e.g., IBAN, 
+line items not perfectly matching total).\n- If the 
+document does not look like an invoice at all, or 
+most fields are null, score should be less than 
+0.5.\n        \nCANDIDATE SUPPLIERS FROM ERP:\n[\n  
+{\n    "iban": "FR7630006000011234567890189",\n    
+"vat_number": "FR82123456789",\n    "name": 
+"TechnoVision SAS",\n    "id": 1,\n    "siret": 
+"12345678900014"\n  },\n  {\n    "id": 3,\n    
+"siret": "45678901200035",\n    "name": "LogiServ 
+Europe SA",\n    "iban": 
+"FR7620041000013456789012345",\n    "vat_number": 
+"FR31456789012"\n  },\n  {\n    "name": "Fournitures 
+Dupont SARL",\n    "iban": 
+"FR7610011000202345678901234",\n    "id": 2,\n    
+"siret": "98765432100028",\n    "vat_number": 
+"FR55987654321"\n  }\n]\n\nIf the vendor appears to 
+be one of these Candidate Suppliers (even if spelled 
+differently, abbreviated, or missing details), you 
+MUST prioritize extracting the exact Name, 
+vat_number, and siret from the Candidate Supplier 
+record rather than guessing from the document 
+content.\n'}
+ERROR:agents.graph:Workflow ended with errors: 
+['Ingestion failed: create_react_agent() got 
+unexpected keyword arguments: {\'state_modifier\': 
+\'You are an expert Accounts Payable invoice data 
+extraction agent using a Vision-Language 
+Model.\\nYou receive images of a French supplier 
+invoice and must extract structured 
+data.\\n\\nIMPORTANT: Use SEMANTIC LABEL 
+IDENTIFICATION. This means:\\n1. Identify labels 
+based on their MEANING, not just exact text (e.g., 
+"TOTAL TTC", "Net a payer", "Amount Due", "Total" 
+all map to total_ttc).\\n2. Distinguish between 
+SUPPLIER (vendor) and CUSTOMER (bill-to) information 
+by analyzing the layout (supplier is usually at the 
+top or header).\\n3. Extract information directly 
+from the visual context.\\n\\nThis is a French 
+business document. Look for:\\n- TVA (VAT) numbers 
+with FR prefix\\n- SIRET numbers (14 digits)\\n- 
+IBAN/BIC for French banks\\n- PO / Bon de commande 
+references\\n- Amounts: HT (hors taxes), TVA, TTC 
+(toutes taxes comprises)\\n\\nRULES FOR CONFIDENCE 
+SCORE:\\n- Start at 1.0.\\n- Subtract 0.20 for ANY 
+major missing fields (e.g. SIRET, TVA, PO 
+Number).\\n- Subtract 0.20 if the math doesn\\\'t 
+make sense (e.g., total_ht + tva_amount != 
+total_ttc).\\n- Subtract 0.10 for minor missing 
+fields (e.g., IBAN, line items not perfectly 
+matching total).\\n- If the document does not look 
+like an invoice at all, or most fields are null, 
+score should be less than 0.5.\\n        
+\\nCANDIDATE SUPPLIERS FROM ERP:\\n[\\n  {\\n    
+"iban": "FR7630006000011234567890189",\\n    
+"vat_number": "FR82123456789",\\n    "name": 
+"TechnoVision SAS",\\n    "id": 1,\\n    "siret": 
+"12345678900014"\\n  },\\n  {\\n    "id": 3,\\n    
+"siret": "45678901200035",\\n    "name": "LogiServ 
+Europe SA",\\n    "iban": 
+"FR7620041000013456789012345",\\n    "vat_number": 
+"FR31456789012"\\n  },\\n  {\\n    "name": 
+"Fournitures Dupont SARL",\\n    "iban": 
+"FR7610011000202345678901234",\\n    "id": 2,\\n    
+"siret": "98765432100028",\\n    "vat_number": 
+"FR55987654321"\\n  }\\n]\\n\\nIf the vendor appears 
+to be one of these Candidate Suppliers (even if 
+spelled differently, abbreviated, or missing 
+details), you MUST prioritize extracting the exact 
+Name, vat_number, and siret from the Candidate 
+Supplier record rather than guessing from the 
+document content.\\n\'}']
+INFO:agents.graph:Invoice processing complete: 
+status=error
+CRITICAL DEBUG: ingestion_node STARTED
+DEBUG: Fallback OCR extracted 951 characters: FACTURE N░ FAC-2025-0042
+TechnoVision SAS
+15 Rue de la Paix
+75002 Paris, France
+N░ TVA: FR82123456789
+SIRET: 12345678900014
+CoordonnΘes bancaires:
+IBAN: FR7630006000011234567890189
+BIC: BNPAFRPP
+Date:...
+
+==================================================
+EXTRACTION RESULTS
+==================================================
+Status: error
+Errors: ['Ingestion failed: create_react_agent() got unexpected keyword arguments: {\'state_modifier\': \'You are an expert Accounts Payable invoice data extraction agent using a Vision-Language Model.\\nYou receive images of a French supplier invoice and must extract structured data.\\n\\nIMPORTANT: Use SEMANTIC LABEL IDENTIFICATION. This means:\\n1. Identify labels based on their MEANING, not just exact text (e.g., "TOTAL TTC", "Net a payer", "Amount Due", "Total" all map to total_ttc).\\n2. Distinguish between SUPPLIER (vendor) and CUSTOMER (bill-to) information by analyzing the layout (supplier is usually at the top or header).\\n3. Extract information directly from the visual context.\\n\\nThis is a French business document. Look for:\\n- TVA (VAT) numbers with FR prefix\\n- SIRET numbers (14 digits)\\n- IBAN/BIC for French banks\\n- PO / Bon de commande references\\n- Amounts: HT (hors taxes), TVA, TTC (toutes taxes comprises)\\n\\nRULES FOR CONFIDENCE SCORE:\\n- Start at 1.0.\\n- Subtract 0.20 for ANY major missing fields (e.g. SIRET, TVA, PO Number).\\n- Subtract 0.20 if the math doesn\\\'t make sense (e.g., total_ht + tva_amount != total_ttc).\\n- Subtract 0.10 for minor missing fields (e.g., IBAN, line items not perfectly matching total).\\n- If the document does not look like an invoice at all, or most fields are null, score should be less than 0.5.\\n        \\nCANDIDATE SUPPLIERS FROM ERP:\\n[\\n  {\\n    "iban": "FR7630006000011234567890189",\\n    "vat_number": "FR82123456789",\\n    "name": "TechnoVision SAS",\\n    "id": 1,\\n    "siret": "12345678900014"\\n  },\\n  {\\n    "id": 3,\\n    "siret": "45678901200035",\\n    "name": "LogiServ Europe SA",\\n    "iban": "FR7620041000013456789012345",\\n    "vat_number": "FR31456789012"\\n  },\\n  {\\n    "name": "Fournitures Dupont SARL",\\n    "iban": "FR7610011000202345678901234",\\n    "id": 2,\\n    "siret": "98765432100028",\\n    "vat_number": "FR55987654321"\\n  }\\n]\\n\\nIf the vendor appears to be one of these Candidate Suppliers (even if spelled differently, abbreviated, or missing details), you MUST prioritize extracting the exact Name, vat_number, and siret from the Candidate Supplier record rather than guessing from the document content.\\n\'}']
+Extracted Data: {}
+Confidence: None
+==================================================

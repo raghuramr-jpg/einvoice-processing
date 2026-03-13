@@ -14,7 +14,7 @@ config:
 flowchart TB
  subgraph Pipeline["LangGraph Pipeline"]
         Ingestion["Ingestion Agent\nOCR + RAG + LLM Extraction"]
-        Validation["Validation Agent\nMCP API + Policy Checks"]
+        Validation["Validation Agent\nReactive Agent + MCP Tools"]
         Routing{"Confidence > 0.8\n& All Valid?"}
         Processing["Processing Agent\nERP Invoice Creation"]
         Reject["Processing Agent\nRejection Report"]
@@ -85,14 +85,14 @@ flowchart LR
     Ing -- "Context query\n(first 1000 chars)" --> RAG
     RAG -- "Candidate suppliers\n+ policy metadata" --> Ing
 
-    Ing -- "Extracted JSON" --> Val["Validation Agent"]
+    Ing -- "Extracted JSON" --> Val["Validation Agent\n(Reactive AI Agent)"]
 
-    subgraph MCP["MCP ERP Server"]
+    subgraph MCP["MCP ERP Server (in-process)"]
         V1["VAT / SIRET / Bank / PO"]
         V2["Supplier Policy\n(cap · PO · currency · approval)"]
     end
 
-    Val --> V1 & V2
+    Val -- "LangChain Tool calls\n(dynamic, LLM-driven)" --> V1 & V2
     V1 & V2 --> ERP
     ERP -. "Truth data" .-> V1 & V2
     V1 & V2 -. "Pass / Fail / requires_approval" .-> Val
@@ -110,11 +110,32 @@ flowchart LR
 | Component | Technology | Description |
 |-----------|-----------|-------------|
 | **API Gateway** | FastAPI | REST API for invoice upload and status |
-| **Ingestion Agent** | LangGraph React Agent + ChromaDB | OCR → RAG fuzzy matching → Agent extraction (create_react_agent) |
-| **Validation Agent** | LangGraph + MCP Client | Validates VAT, SIRET, bank, PO, and supplier policies |
-| **Processing Agent** | LangGraph + MCP Client | Posts validated invoice to ERP |
-| **MCP ERP Server** | FastMCP | Exposes ERP tools via Model Context Protocol |
-| **RAG Store** | ChromaDB + OllamaEmbeddings | Supplier embeddings with embedded policy context |
+| **Ingestion Agent** | LangGraph `create_react_agent` + ChromaDB | OCR → RAG fuzzy matching → structured field extraction with `InvoiceExtractionSchema` |
+| **Validation Agent** | LangGraph `create_react_agent` + LangChain Tools | Reactive AI agent that dynamically calls 6 MCP-backed LangChain tools; returns structured `ValidationOutputSchema` |
+| **Processing Agent** | LangGraph + MCP Client | Posts validated invoice to ERP via `create_erp_invoice` |
+| **MCP ERP Server** | FastMCP | Exposes 7 ERP tools via Model Context Protocol (called in-process for performance) |
+| **RAG Store** | ChromaDB + OllamaEmbeddings (`nomic-embed-text`) | Supplier embeddings with embedded policy context for fuzzy supplier matching |
+
+---
+
+## Validation Agent — Reactive AI Design
+
+The Validation Agent uses LangGraph's **`create_react_agent`** pattern. Instead of a deterministic sequence of MCP calls, the LLM autonomously decides which tools to call and in what order, based on the extracted invoice data.
+
+### LangChain Tools (wrapping MCP ERP Server)
+
+| LangChain Tool | MCP Tool | Purpose |
+|---------------|----------|---------|
+| `validate_vat` | `validate_vat` | Check VAT number in ERP supplier master |
+| `validate_siret` | `validate_siret` | Check French SIRET number |
+| `validate_supplier_bank` | `validate_supplier_bank` | Verify IBAN/BIC against supplier records |
+| `validate_purchase_order` | `validate_purchase_order` | Confirm PO exists and is open/receivable |
+| `get_supplier_details` | `get_supplier_details` | Look up supplier by name |
+| `validate_supplier_policy` | `validate_supplier_policy` | Enforce supplier-specific business rules |
+
+The agent is instructed to perform all relevant checks and compile results into a `ValidationOutputSchema` with structured `ValidationDetail` entries per field.
+
+> **Note:** The MCP ERP Server tools are called **in-process** (direct Python function calls) rather than over the MCP stdio/SSE transport. This avoids subprocess overhead in the LangGraph pipeline while preserving the MCP tool interface for future transport-layer upgrades.
 
 ---
 
@@ -192,7 +213,7 @@ uv run python scripts/generate_policy_test_invoices.py
 ```
 
 | Invoice PDF | Supplier | Amount TTC | PO? | Expected Outcome |
-|-------------|----------|-----------|-----|-----------------|
+|-------------|----------|-----------|-----|-----------------:|
 | `invoice_technovision_pass.pdf` | TechnoVision SAS | €14,520 | ✅ | ✅ PASS |
 | `invoice_dupont_fail_amount.pdf` | Fournitures Dupont | €14,280 | ✅ | ❌ FAIL — over €10k cap |
 | `invoice_logiserv_no_po_pass.pdf` | LogiServ Europe SA | €3,900 | ❌ | ✅ PASS — PO optional under €5k |
@@ -207,6 +228,17 @@ uv run python scripts/generate_policy_test_invoices.py
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
 - [Ollama](https://ollama.com/) running locally (default) **or** an OpenAI API key
+
+### LLM Provider Configuration
+
+Set `LLM_PROVIDER` in `.env`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LLM_PROVIDER` | `ollama` | `ollama` or `openai` |
+| `LLM_MODEL` | `llama3.1` (Ollama) / `gpt-4o-mini` (OpenAI) | Model name |
+| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama OpenAI-compatible endpoint |
+| `OPENAI_API_KEY` | — | Required if using OpenAI |
 
 ### Setup
 
@@ -246,7 +278,7 @@ curl http://localhost:8000/api/invoices
 ### Run Tests
 
 ```bash
-# Full test suite (13 tests — includes supplier policy checks)
+# Full test suite (includes supplier policy checks)
 uv run pytest tests/ -v
 
 # Policy tests only
@@ -271,11 +303,11 @@ ap-invoice-agent/
 │   └── models.py                    # Pydantic models
 ├── chroma_db/                       # Local ChromaDB vector store (RAG)
 ├── agents/                          # LangGraph Agents
-│   ├── state.py                     # Shared pipeline state
-│   ├── ingestion_agent.py           # OCR + RAG context + LangGraph create_react_agent
-│   ├── validation_agent.py          # MCP validation (VAT, SIRET, bank, PO, policy)
-│   ├── processing_agent.py          # ERP invoice creation
-│   └── graph.py                     # LangGraph workflow definition
+│   ├── state.py                     # Shared pipeline state (InvoiceProcessingState)
+│   ├── ingestion_agent.py           # OCR + RAG context + create_react_agent extraction
+│   ├── validation_agent.py          # Reactive AI agent with 6 LangChain-wrapped MCP tools
+│   ├── processing_agent.py          # ERP invoice creation via create_erp_invoice
+│   └── graph.py                     # LangGraph workflow (ingest → validate → process/reject)
 ├── api/                             # FastAPI Gateway
 │   ├── main.py                      # Routes
 │   ├── schemas.py                   # Response models
@@ -285,7 +317,7 @@ ap-invoice-agent/
 │   ├── generate_policy_test_invoices.py  # Generate 5 policy-scenario PDFs
 │   └── generate_sample_pdfs.py      # Generate basic sample PDFs
 └── tests/
-    ├── test_validation_agent.py     # 13 tests incl. all policy scenarios
+    ├── test_validation_agent.py     # Tests incl. all policy scenarios
     ├── test_mcp_erp_server.py
     └── sample_invoices/             # Test invoice PDFs
 ```
