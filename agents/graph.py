@@ -12,6 +12,7 @@ from .processing_agent import process_node, reject_node
 from .state import InvoiceProcessingState
 from .validation_agent import validation_node
 from .human_review_agent import human_review_node
+from .audit_agent import audit_node
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ def _should_continue_after_ingestion(state: InvoiceProcessingState) -> str:
     """Route after ingestion: continue to validation or stop on error."""
     if state.get("status") == "error":
         return "error_end"
-    return "validate"
+    return "audit"
 
 
 def _should_route_after_validation(state: InvoiceProcessingState) -> str:
@@ -69,6 +70,7 @@ def build_invoice_graph() -> StateGraph:
 
     # Add nodes
     workflow.add_node("ingest", ingestion_node)
+    workflow.add_node("audit", audit_node)
     workflow.add_node("validate", validation_node)
     workflow.add_node("human_review", human_review_node)
     workflow.add_node("process", process_node)
@@ -83,10 +85,12 @@ def build_invoice_graph() -> StateGraph:
         "ingest",
         _should_continue_after_ingestion,
         {
-            "validate": "validate",
+            "audit": "audit",
             "error_end": "error_end",
         },
     )
+    
+    workflow.add_edge("audit", "validate")
 
     workflow.add_conditional_edges(
         "validate",

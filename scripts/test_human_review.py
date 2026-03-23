@@ -28,10 +28,10 @@ class MockLLM(MagicMock):
         def mock_invoke(*args, **kwargs):
             if "Extract invoice data" in str(args):
                 return MagicMock(
-                    supplier_name="Dupont", 
+                    supplier_name=None, # Missing mandatory field
                     invoice_number="INV-001", 
-                    confidence_score=0.75,
-                    model_dump=lambda: {"supplier_name": "Dupont", "invoice_number": "INV-001", "confidence_score": 0.75}
+                    confidence_score=1.0, # LLM thinks it's 1.0
+                    model_dump=lambda: {"supplier_name": None, "invoice_number": "INV-001", "confidence_score": 1.0}
                 )
             # Return ValidationOutputSchema
             return MagicMock(
@@ -53,9 +53,7 @@ async def test_human_review_trigger():
     invoice_path = project_root / "tests" / "sample_invoices" / "invoice_dupont_fail_amount.pdf"
     
     # Mocking the LLM, Embeddings, and Chroma calls
-    with patch("agents.ingestion_agent._get_llm", return_value=MockLLM()), \
-         patch("agents.validation_agent._get_llm", return_value=MockLLM()), \
-         patch("agents.human_review_agent._get_llm", return_value=MockLLM()), \
+    with patch("agents.utils.get_llm", return_value=MockLLM()), \
          patch("agents.ingestion_agent.OllamaEmbeddings"), \
          patch("agents.ingestion_agent.Chroma") as mock_chroma:
         
