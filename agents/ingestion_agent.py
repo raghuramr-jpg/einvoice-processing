@@ -12,6 +12,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langchain_ollama import ChatOllama
+from .utils import get_llm
 from langchain_chroma import Chroma
 from langchain_community.embeddings import OllamaEmbeddings
 from langgraph.prebuilt import create_react_agent
@@ -25,27 +26,7 @@ logger = logging.getLogger(__name__)
 # LLM configuration
 # ---------------------------------------------------------------------------
 
-def _get_llm() -> ChatOpenAI:
-    provider = os.getenv("LLM_PROVIDER", "ollama").lower()
-    
-    if provider == "ollama":
-        base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        # Strip /v1 if present for ChatOllama
-        base_url = base_url.replace("/v1/", "").replace("/v1", "")
-        model_name = os.getenv("LLM_MODEL", "qwen2.5-vl")
-        logger.info("Using Ollama LLM (%s) at: %s", model_name, base_url)
-        return ChatOllama(
-            model=model_name,
-            base_url=base_url,
-            temperature=0,
-        )
-    else:
-        logger.info("Using OpenAI LLM")
-        # Standard OpenAI client
-        return ChatOpenAI(
-            model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
-            temperature=0,
-        )
+# _get_llm removed in favor of .utils.get_llm
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +180,7 @@ def ingestion_node(state: InvoiceProcessingState) -> dict[str, Any]:
         except Exception as e:
             logger.warning(f"Failed to retrieve candidate suppliers from RAG: {e}")
 
-        llm = _get_llm()
+        llm = get_llm()
         candidates_json = json.dumps(candidate_suppliers, indent=2)
         
         # Base system prompt for both vision and text

@@ -1,9 +1,6 @@
 import asyncio
 import json
 from datetime import datetime
-import os
-os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_invoices.db"
-
 from api.database import AsyncSessionLocal, Invoice, UserNotification, init_db
 
 async def seed_data():

@@ -18,9 +18,9 @@ graph TB
     end
 
     subgraph Agents["AI Agents"]
-        ING["Ingestion Agent\n(Qwen2.5-VL)"]
-        VAL["Validation Agent\n(LangChain-MCP)"]
-        HRA["Human Review Agent\n(LLM Explanation)"]
+        ING["Ingestion Agent\n(Qwen2.5vl Vision)"]
+        VAL["Validation Agent\n(Llama 3.1 Tools)"]
+        HRA["Human Review Agent\n(Llama 3.1 Explanation)"]
         PROC["Processing Agent"]
     end
 
@@ -151,9 +151,9 @@ flowchart LR
 | Component | Technology | Description |
 |-----------|-----------|-------------|
 | **API Gateway** | FastAPI | REST API for invoice upload and status |
-| **Ingestion Agent** | **Qwen2.5-VL** / Qwen2.5 + ChromaDB | Multimodal Vision extraction → RAG fuzzy matching → structured extraction with robust text fallback |
-| **Validation Agent** | LangGraph `create_react_agent` + LangChain Tools | Reactive AI agent that dynamically calls 6 MCP-backed LangChain tools; returns structured `ValidationOutputSchema` |
-| **Human Review Agent** | LangGraph + LLM Explanation | Generates clear, human-friendly notes for why an invoice failed validation or has low confidence |
+| **Ingestion Agent** | **Qwen2.5vl** / Qwen2.5 + ChromaDB | Multimodal Vision extraction → RAG fuzzy matching with robust text fallback |
+| **Validation Agent** | **Llama 3.1** + LangChain Tools | Reactive AI agent that dynamically calls 6 MCP-backed tools; uses tool-calling for ERP validation |
+| **Human Review Agent** | **Llama 3.1** + LangGraph | Generates clear, human-friendly notes for why an invoice failed validation or has low confidence |
 | **Processing Agent** | LangGraph + MCP Client | Posts validated invoice to ERP via `create_erp_invoice` |
 | **MCP ERP Server** | FastMCP | Exposes 7 ERP tools via Model Context Protocol (called in-process for performance) |
 | **RAG Store** | ChromaDB + OllamaEmbeddings (`nomic-embed-text`) | Supplier embeddings with embedded policy context for fuzzy supplier matching |
@@ -175,14 +175,14 @@ graph TD
     
     E --> F{Vision Model Found?}
     
-    F -- Yes --> G[Qwen2.5-VL Vision Extraction]
+    F -- Yes --> G[Qwen2.5vl Vision Extraction]
     F -- No / 404 --> H[Text-Only LLM Fallback]
     
     G --> I{Successful?}
     I -- Yes --> K[Return Data]
     I -- No --> H
     
-    H --> J[Qwen2.5 Text Extraction]
+    H --> J[Llama 3.1 / Qwen2.5 Text Extraction]
     J --> K
 ```
 
@@ -327,7 +327,8 @@ Set `LLM_PROVIDER` in `.env`:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LLM_PROVIDER` | `ollama` | `ollama` or `openai` |
-| `LLM_MODEL` | `qwen2.5-vl` | Primary Vision-Language Model |
+| `LLM_MODEL` | `qwen2.5vl` | Primary Vision-Language Model (Extraction) |
+| `LLM_MODEL_VALIDATION` | `llama3.1` | Model for Tools & Human Review |
 | `LLM_MODEL_TEXT` | `qwen2.5` | Fallback text-only model |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API endpoint |
 | `OPENAI_API_KEY` | — | Required if using OpenAI |

@@ -10,15 +10,13 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langchain_ollama import ChatOllama
 
+from .utils import get_llm
 from .state import InvoiceProcessingState
 
 logger = logging.getLogger(__name__)
 
 
-def _get_llm():
-    """Reuse LLM configuration from ingestion agent."""
-    from .ingestion_agent import _get_llm
-    return _get_llm()
+# _get_llm removed in favor of .utils.get_llm
 
 
 _HUMAN_REVIEW_SYSTEM_PROMPT = """You are an Accounts Payable specialist assistant. 
@@ -54,7 +52,7 @@ def human_review_node(state: InvoiceProcessingState) -> dict[str, Any]:
         "system_errors": errors
     }
     
-    llm = _get_llm()
+    llm = get_llm("LLM_MODEL_VALIDATION", "llama3.1")
     
     prompt = f"""Please review these processing results and provide a 2-4 sentence explanation for a human reviewer:
 

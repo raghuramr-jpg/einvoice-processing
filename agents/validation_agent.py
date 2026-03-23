@@ -14,7 +14,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel, Field
 
-from .ingestion_agent import _get_llm
+from .utils import get_llm
 from .state import InvoiceProcessingState, ValidationDetail
 
 logger = logging.getLogger(__name__)
@@ -136,7 +136,7 @@ def validation_node(state: InvoiceProcessingState) -> dict[str, Any]:
         validate_supplier_policy
     ]
 
-    llm = _get_llm()
+    llm = get_llm("LLM_MODEL_VALIDATION", "llama3.1")
 
     system_prompt = """You are an expert ERP Validation Agent.
 You receive extracted data from an invoice. Your job is to validate this data using the provided ERP tools.
