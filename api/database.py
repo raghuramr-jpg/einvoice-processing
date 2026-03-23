@@ -78,6 +78,7 @@ class Invoice(Base):
     # Store the messages
     validation_results = Column(Text, nullable=True)   # JSON string
     processing_result = Column(Text, nullable=True)    # JSON string
+    human_review_notes = Column(Text, nullable=True)   # LLM explanation
     errors = Column(Text, nullable=True)               # JSON string
     
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -108,6 +109,7 @@ class Invoice(Base):
             },
             "validation_results": json.loads(self.validation_results) if self.validation_results else None,
             "processing_result": json.loads(self.processing_result) if self.processing_result else None,
+            "human_review_notes": self.human_review_notes,
             "errors": json.loads(self.errors) if self.errors else [],
             "confidence_score": self.confidence_score,
             "created_at": self.created_at,

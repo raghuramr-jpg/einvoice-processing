@@ -4,6 +4,43 @@ Agentic AI system for **Accounts Payable invoice processing** using the **Model 
 
 ---
 
+## High-Level Component Diagram
+
+```mermaid
+graph TB
+    subgraph Client["Client Tier"]
+        UI["User / External System"]
+    end
+
+    subgraph API["API & Orchestration Layer"]
+        GW["FastAPI Gateway"]
+        LG["LangGraph Engine"]
+    end
+
+    subgraph Agents["AI Agents"]
+        ING["Ingestion Agent\n(Qwen2.5-VL)"]
+        VAL["Validation Agent\n(LangChain-MCP)"]
+        HRA["Human Review Agent\n(LLM Explanation)"]
+        PROC["Processing Agent"]
+    end
+
+    subgraph Storage["Data & Knowledge Layer"]
+        ADB["SQLite (App DB)"]
+        RAG["ChromaDB (Supplier RAG)"]
+        EDB["ERP DB (Mocked)"]
+    end
+
+    UI <--> GW
+    GW <--> LG
+    LG <--> ING & VAL & HRA & PROC
+    ING <--> RAG
+    VAL <--> EDB
+    PROC <--> EDB
+    GW <--> ADB
+```
+
+---
+
 ## Architecture
 
 ```mermaid
@@ -16,6 +53,7 @@ flowchart TB
         Ingestion["Ingestion Agent\nOCR + RAG + LLM Extraction"]
         Validation["Validation Agent\nReactive Agent + MCP Tools"]
         Routing{"Confidence > 0.8\n& All Valid?"}
+        HumanReview["Human Review Agent\nLLM Explanation"]
         Processing["Processing Agent\nERP Invoice Creation"]
         Reject["Processing Agent\nRejection Report"]
   end
@@ -38,16 +76,17 @@ flowchart TB
     T1 & T2 & T3 & T4 & T5 -. "Validation Results" .-> Validation
     Validation --> Routing
     ERP == "sync_db.py\n(suppliers + policies)" ==> VectorDB
-    Routing --> Processing & Reject
-    Processing --> T6
-    T6 --> ERP
+    Routing --> Processing
+    Routing -- "Fail/Low Conf" --> HumanReview
+    HumanReview --> Reject
     Processing & Reject --> API
-    API -. "Low confidence\nor rejected" .-> Notify["Manual Review\nNotification"]
+    API -. "Requires Review" .-> Notify["Manual Review\nNotification"]
 
      User:::user
      API:::user
      Ingestion:::agent
      Validation:::agent
+     HumanReview:::agent
      Routing:::agent
      Processing:::agent
      Reject:::agent
@@ -98,9 +137,11 @@ flowchart LR
     V1 & V2 -. "Pass / Fail / requires_approval" .-> Val
 
     Val -- "All passed\nconfidence > 0.8" --> Proc["Processing Agent"]
-    Val -- "Failures" --> GW
+    Val -- "Failures / Low Conf" --> HRA["Human Review Agent"]
+    HRA -- "Explanation" --> Rej["Reject Node / Report"]
     Proc -- "create_erp_invoice" --> ERP
     Proc -- "Invoice ID" --> GW --> User
+    Rej -- "Manual Review Flags" --> GW
 ```
 
 ---
@@ -112,6 +153,7 @@ flowchart LR
 | **API Gateway** | FastAPI | REST API for invoice upload and status |
 | **Ingestion Agent** | **Qwen2.5-VL** / Qwen2.5 + ChromaDB | Multimodal Vision extraction → RAG fuzzy matching → structured extraction with robust text fallback |
 | **Validation Agent** | LangGraph `create_react_agent` + LangChain Tools | Reactive AI agent that dynamically calls 6 MCP-backed LangChain tools; returns structured `ValidationOutputSchema` |
+| **Human Review Agent** | LangGraph + LLM Explanation | Generates clear, human-friendly notes for why an invoice failed validation or has low confidence |
 | **Processing Agent** | LangGraph + MCP Client | Posts validated invoice to ERP via `create_erp_invoice` |
 | **MCP ERP Server** | FastMCP | Exposes 7 ERP tools via Model Context Protocol (called in-process for performance) |
 | **RAG Store** | ChromaDB + OllamaEmbeddings (`nomic-embed-text`) | Supplier embeddings with embedded policy context for fuzzy supplier matching |
@@ -170,8 +212,25 @@ The agent is instructed to perform all relevant checks and compile results into 
 > **Note:** The MCP ERP Server tools are called **in-process** (direct Python function calls) rather than over the MCP stdio/SSE transport. This avoids subprocess overhead in the LangGraph pipeline while preserving the MCP tool interface for future transport-layer upgrades.
 
 ---
-
-## MCP ERP Tools
+ 
+ ## Human Review Agent — Explainable AI
+ 
+ The Human Review Agent is triggered whenever an invoice fails validation or has an extraction confidence score below 0.8. Instead of a silent rejection, this agent uses an LLM to "read" the failures and system errors to produce a concise, human-friendly explanation.
+ 
+ ### Features:
+ - **Failure Analysis**: Correlates VAT mismatches, PO errors, and policy violations.
+ - **Confidence Explanation**: Summarizes why the LLM was unsure about specific fields (e.g., "PO number was handwritten or obscured").
+ - **User Notifications**: Injects the explanation directly into the `user_notifications` table for display in a reviewer's inbox.
+ 
+ **Notification Endpoint:**
+ ```bash
+ # Fetch all manual review notifications
+ curl http://localhost:8000/api/notifications
+ ```
+ 
+ ---
+ 
+ ## MCP ERP Tools
 
 | Tool | Purpose |
 |------|---------|

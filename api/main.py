@@ -162,6 +162,7 @@ async def upload_invoice(
 
         invoice.validation_results = json.dumps(result.get("validation_results")) if result.get("validation_results") else None
         invoice.processing_result = json.dumps(result.get("processing_result")) if result.get("processing_result") else None
+        invoice.human_review_notes = result.get("human_review_notes")
         invoice.errors = json.dumps(result.get("errors", []))
 
         await db.commit()
@@ -171,12 +172,15 @@ async def upload_invoice(
         needs_review = False
         review_message = ""
 
-        if invoice.status in ("error", "rejected"):
+        if invoice.status == "requires_review":
             needs_review = True
-            review_message = f"Workflow failed or was rejected. Status: {invoice.status}. Please review manually."
+            review_message = invoice.human_review_notes or "Manual review required by agent."
+        elif invoice.status in ("error", "rejected"):
+            needs_review = True
+            review_message = invoice.human_review_notes or f"Workflow failed or was rejected. Status: {invoice.status}. Please review manually."
         elif confidence < 0.80:
             needs_review = True
-            review_message = f"Low extraction confidence ({confidence:.2f}). Please review manually."
+            review_message = invoice.human_review_notes or f"Low extraction confidence ({confidence:.2f}). Please review manually."
 
         if needs_review:
             notification = UserNotification(

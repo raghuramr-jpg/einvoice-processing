@@ -56,6 +56,7 @@ class InvoiceResponse(BaseModel):
     extracted_data: Optional[ExtractedDataResponse] = None
     validation_results: Optional[list[ValidationDetailResponse]] = None
     processing_result: Optional[ProcessingResultResponse] = None
+    human_review_notes: Optional[str] = None
     errors: list[str] = Field(default_factory=list)
     confidence_score: Optional[float] = None
     image_url: Optional[str] = None

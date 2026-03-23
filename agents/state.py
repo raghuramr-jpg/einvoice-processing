@@ -50,9 +50,13 @@ class InvoiceProcessingState(TypedDict, total=False):
     validation_results: list[ValidationDetail]
     all_validations_passed: bool
 
+    # Human Review
+    human_review_notes: str
+    review_required: bool
+
     # Processing
     processing_result: dict[str, Any]
 
     # Overall
-    status: str   # pending | ingested | validated | processed | rejected | error
+    status: str   # pending | ingested | validated | processed | rejected | error | requires_review
     errors: list[str]

@@ -11,6 +11,7 @@ from .ingestion_agent import ingestion_node
 from .processing_agent import process_node, reject_node
 from .state import InvoiceProcessingState
 from .validation_agent import validation_node
+from .human_review_agent import human_review_node
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +27,14 @@ def _should_continue_after_ingestion(state: InvoiceProcessingState) -> str:
     return "validate"
 
 
-def _should_process_or_reject(state: InvoiceProcessingState) -> str:
-    """Route after validation: process if all passed and confidence > 0.8, reject otherwise."""
+def _should_route_after_validation(state: InvoiceProcessingState) -> str:
+    """Route after validation: process if all passed and confidence > 0.8, else human review."""
     confidence = state.get("extraction_confidence", 1.0)
-    if state.get("all_validations_passed") and confidence > 0.8:
+    all_passed = state.get("all_validations_passed", False)
+    
+    if all_passed and confidence > 0.8:
         return "process"
-    return "reject"
+    return "human_review"
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +70,7 @@ def build_invoice_graph() -> StateGraph:
     # Add nodes
     workflow.add_node("ingest", ingestion_node)
     workflow.add_node("validate", validation_node)
+    workflow.add_node("human_review", human_review_node)
     workflow.add_node("process", process_node)
     workflow.add_node("reject", reject_node)
     workflow.add_node("error_end", error_node)
@@ -86,12 +90,14 @@ def build_invoice_graph() -> StateGraph:
 
     workflow.add_conditional_edges(
         "validate",
-        _should_process_or_reject,
+        _should_route_after_validation,
         {
             "process": "process",
-            "reject": "reject",
+            "human_review": "human_review",
         },
     )
+
+    workflow.add_edge("human_review", "reject")
 
     # Terminal edges
     workflow.add_edge("process", END)
