@@ -13,12 +13,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents.graph import process_invoice
 from api.database import AsyncSessionLocal, Invoice, LineItem, UserNotification, init_db
-from api.schemas import InvoiceListResponse, InvoiceResponse, UserNotificationListResponse
+from api.schemas import InvoiceListResponse, InvoiceResponse, UserNotificationListResponse, InvoiceReviewRequest
 
 # Load environment
 load_dotenv()
@@ -54,6 +55,15 @@ app = FastAPI(
     ),
     version="0.1.0",
     lifespan=lifespan,
+)
+
+# Enable CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # For demo purposes
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Serve uploaded files
@@ -282,6 +292,39 @@ async def list_notifications(
         "notifications": [notif.to_dict() for notif in notifications],
         "total": total,
     }
+
+
+@app.patch("/api/invoices/{invoice_id}/review", response_model=InvoiceResponse)
+async def review_invoice(
+    invoice_id: int,
+    review: InvoiceReviewRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually approve or reject an invoice with a comment."""
+    result = await db.execute(select(Invoice).where(Invoice.id == invoice_id))
+    invoice = result.scalar_one_or_none()
+    
+    if not invoice:
+        raise HTTPException(status_code=404, detail=f"Invoice {invoice_id} not found")
+        
+    # Update status and comment
+    invoice.status = review.status
+    invoice.human_comment = review.human_comment
+    
+    # Remove any existing manual review notifications for this invoice
+    await db.execute(delete(UserNotification).where(UserNotification.invoice_id == invoice_id))
+    
+    await db.commit()
+    await db.refresh(invoice)
+    
+    logger.info("Manual review complete for invoice %d: status=%s", invoice_id, invoice.status)
+    
+    # Return updated invoice
+    invoice_dict = invoice.to_dict()
+    base_url = str(request.base_url).rstrip("/")
+    invoice_dict["image_url"] = f"{base_url}/api/invoices/static/{invoice.filename}"
+    return invoice_dict
 
 
 @app.get("/health")

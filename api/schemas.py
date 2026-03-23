@@ -57,6 +57,7 @@ class InvoiceResponse(BaseModel):
     validation_results: Optional[list[ValidationDetailResponse]] = None
     processing_result: Optional[ProcessingResultResponse] = None
     human_review_notes: Optional[str] = None
+    human_comment: Optional[str] = None
     errors: list[str] = Field(default_factory=list)
     confidence_score: Optional[float] = None
     image_url: Optional[str] = None
@@ -79,3 +80,7 @@ class UserNotificationResponse(BaseModel):
 class UserNotificationListResponse(BaseModel):
     notifications: list[UserNotificationResponse]
     total: int
+
+class InvoiceReviewRequest(BaseModel):
+    status: str = Field(..., description="The decision: 'validated' or 'rejected'")
+    human_comment: Optional[str] = None
