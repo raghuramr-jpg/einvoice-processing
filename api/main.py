@@ -312,13 +312,56 @@ async def review_invoice(
     invoice.status = review.status
     invoice.human_comment = review.human_comment
     
+    # If manually validated, post to ERP
+    if review.status == "validated":
+        from agents.validation_agent import McpErpClient
+        client = McpErpClient()
+        
+        # Prepare line items for ERP
+        items_data = []
+        for item in invoice.line_items:
+            items_data.append({
+                "description": item.description,
+                "quantity": item.quantity,
+                "unit_price": item.unit_price,
+                "total": item.total
+            })
+            
+        try:
+            erp_result = client.call_tool("create_erp_invoice", {
+                "supplier_name": invoice.supplier_name or "",
+                "vat_number": invoice.vat_number or "",
+                "siret": invoice.siret or "",
+                "po_number": invoice.po_number or "",
+                "invoice_number": invoice.invoice_number or "",
+                "invoice_date": invoice.invoice_date or "",
+                "total_ht": invoice.total_ht or 0,
+                "tva_amount": invoice.tva_amount or 0,
+                "total_ttc": invoice.total_ttc or 0,
+                "line_items": json.dumps(items_data),
+                "currency": invoice.currency or "EUR",
+                "notes": invoice.human_comment or ""
+            })
+            
+            if erp_result.get("success"):
+                invoice.status = "posted"
+                invoice.processing_result = json.dumps(erp_result)
+                logger.info("Invoice %d MANUALLY POSTED to ERP: %s", invoice_id, erp_result["erp_invoice_id"])
+            else:
+                logger.error("Failed to post invoice %d to ERP: %s", invoice_id, erp_result.get("message"))
+                invoice.errors = json.dumps([erp_result.get("message")])
+                
+        except Exception as e:
+            logger.error("Exception during manual ERP post for invoice %d: %s", invoice_id, e)
+            invoice.errors = json.dumps([str(e)])
+
     # Remove any existing manual review notifications for this invoice
     await db.execute(delete(UserNotification).where(UserNotification.invoice_id == invoice_id))
     
     await db.commit()
     await db.refresh(invoice)
     
-    logger.info("Manual review complete for invoice %d: status=%s", invoice_id, invoice.status)
+    logger.info("Manual review complete for invoice %d: final_status=%s", invoice_id, invoice.status)
     
     # Return updated invoice
     invoice_dict = invoice.to_dict()

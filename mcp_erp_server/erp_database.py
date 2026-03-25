@@ -87,7 +87,8 @@ CREATE TABLE IF NOT EXISTS erp_invoices (
     total_ttc       REAL NOT NULL,
     currency        TEXT NOT NULL DEFAULT 'EUR',
     status          TEXT NOT NULL DEFAULT 'posted',
-    created_at      TEXT NOT NULL
+    created_at      TEXT NOT NULL,
+    notes           TEXT DEFAULT ''
 );
 """
 
@@ -220,6 +221,12 @@ def init_database(db_path: Path | str | None = None) -> None:
     """Create tables and seed data if the DB is empty."""
     with get_db(db_path) as conn:
         conn.executescript(_SCHEMA_SQL)
+        
+        # Ensure notes column exists for backward compatibility with existing databases
+        try:
+            conn.execute("ALTER TABLE erp_invoices ADD COLUMN notes TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
         count = conn.execute("SELECT COUNT(*) FROM suppliers").fetchone()[0]
         if count == 0:
@@ -304,6 +311,7 @@ def create_invoice(
     tva_amount: float,
     total_ttc: float,
     currency: str = "EUR",
+    notes: str = "",
     db_path=None,
 ) -> str:
     """Insert an invoice into the ERP and return the generated erp_invoice_id."""
@@ -312,12 +320,12 @@ def create_invoice(
         conn.execute(
             "INSERT INTO erp_invoices "
             "(erp_invoice_id, supplier_id, po_number, invoice_number, invoice_date, "
-            "total_ht, tva_amount, total_ttc, currency, status, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'posted', ?)",
+            "total_ht, tva_amount, total_ttc, currency, status, created_at, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'posted', ?, ?)",
             (
                 erp_invoice_id, supplier_id, po_number, invoice_number,
                 invoice_date, total_ht, tva_amount, total_ttc, currency,
-                datetime.utcnow().isoformat(),
+                datetime.utcnow().isoformat(), notes,
             ),
         )
     return erp_invoice_id

@@ -350,6 +350,7 @@ def create_erp_invoice(
     total_ttc: float,
     line_items: str = "[]",
     currency: str = "EUR",
+    notes: str = "",
 ) -> str:
     """Create an invoice in the ERP system.
 
@@ -367,6 +368,7 @@ def create_erp_invoice(
         total_ttc: Total amount including tax (Toutes Taxes Comprises)
         line_items: JSON string of line items (optional)
         currency: Currency code (default EUR)
+        notes: Internal comments or notes attached to the invoice
 
     Returns:
         JSON with: {success, erp_invoice_id, message}
@@ -405,6 +407,7 @@ def create_erp_invoice(
         tva_amount=tva_amount,
         total_ttc=total_ttc,
         currency=currency,
+        notes=notes,
     )
 
     return json.dumps({
